@@ -1,14 +1,23 @@
 import type { Transaction } from '@pocket/core-model';
 import type { DateRange, PeriodSummary } from './types.js';
 
-// Categories that represent transfers of wealth rather than real spending.
-// Kept in sync with renderer/constants.ts NON_EXPENSE_CATEGORIES.
-const NON_EXPENSE_CATEGORIES = new Set([
-  'investments',
+/**
+ * Categories that are pure accounting transfers — neither real income nor real spending.
+ * Transactions in these categories are excluded from both income and expense totals to
+ * prevent double-counting:
+ *
+ *   credit_card_payment — bank debit settling a card balance (the individual charges
+ *                         are already tracked via the card connector)
+ *   investments         — transfers to brokerages, pension funds, study funds
+ *   transfer            — inter-account moves with no net change in wealth
+ *
+ * Everything else (income, salary, rental_income, donations, mortgage, groceries …)
+ * counts normally: positive amounts go to income, negative amounts go to expenses.
+ */
+const ACCOUNTING_TRANSFERS = new Set([
   'credit_card_payment',
+  'investments',
   'transfer',
-  'income',
-  'savings',
 ]);
 
 /**
@@ -25,14 +34,7 @@ export function summarizePeriod(
   let hasLowConfidence = false;
 
   for (const t of transactions) {
-    // These categories represent transfers of wealth rather than real spending.
-    // Excluding them prevents double-counting and gives a true expense figure:
-    //   credit_card_payment — bank debit settling a card balance (card charges tracked separately)
-    //   investments         — transfers to brokerages, pension funds, study funds
-    //   transfer            — inter-account moves
-    //   income              — positive inflows not treated as expenses
-    //   savings             — deliberate savings contributions
-    if (NON_EXPENSE_CATEGORIES.has(t.category ?? '')) continue;
+    if (ACCOUNTING_TRANSFERS.has(t.category ?? '')) continue;
 
     if (t.amount > 0) {
       income += t.amount;

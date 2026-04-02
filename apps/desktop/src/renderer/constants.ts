@@ -1,4 +1,11 @@
 export const CATEGORIES = [
+  // Income
+  'income',
+  'rental_income',
+  // Housing
+  'mortgage',
+  'home_maintenance',
+  // Daily spending
   'groceries',
   'dining',
   'transport',
@@ -7,18 +14,25 @@ export const CATEGORIES = [
   'entertainment',
   'shopping',
   'education',
-  'banking',
-  'savings',
+  // Financial
   'investments',
-  'income',
+  'savings',
+  'banking',
+  'donations',
+  // Transfers (excluded from expense totals)
   'transfer',
   'credit_card_payment',
+  // Catch-all
   'other',
 ] as const;
 
 export type Category = (typeof CATEGORIES)[number];
 
 export const CATEGORY_LABELS: Record<string, string> = {
+  income: 'Income',
+  rental_income: 'Rental Income',
+  mortgage: 'Mortgage',
+  home_maintenance: 'Home Maintenance',
   groceries: 'Groceries',
   dining: 'Dining',
   transport: 'Transport',
@@ -27,24 +41,14 @@ export const CATEGORY_LABELS: Record<string, string> = {
   entertainment: 'Entertainment',
   shopping: 'Shopping',
   education: 'Education',
-  banking: 'Banking',
-  savings: 'Savings',
   investments: 'Investments',
-  income: 'Income',
+  savings: 'Savings',
+  banking: 'Banking',
+  donations: 'Donations',
   transfer: 'Transfer',
   credit_card_payment: 'Credit Card Payment',
   other: 'Other',
 };
-
-// Categories that represent transfers of wealth rather than real spending.
-// Excluded from expense totals in all summaries and dashboards.
-export const NON_EXPENSE_CATEGORIES = new Set([
-  'investments',
-  'credit_card_payment',
-  'transfer',
-  'income',
-  'savings',
-]);
 
 export const SOURCE_TYPE_LABELS: Record<string, string> = {
   scraper: 'Scraper',
