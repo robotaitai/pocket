@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 /**
  * Opens (or creates) the pocket SQLite database at the given path.
@@ -38,6 +38,11 @@ function applyMigrations(db: Database.Database): void {
   if (current < 2) {
     migrateV2(db);
     setVersion(db, 2);
+  }
+
+  if (current < 3) {
+    migrateV3(db);
+    setVersion(db, 3);
   }
 }
 
@@ -153,5 +158,50 @@ function migrateV2(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_import_batches_created ON import_batches(created_at);
     CREATE INDEX IF NOT EXISTS idx_txns_batch            ON transactions(import_batch_id);
+  `);
+}
+
+// ── Migration V3 — review queue, merchant memory, undo history ────────────────
+
+function migrateV3(db: Database.Database): void {
+  const txCols = db
+    .prepare<[], { name: string }>("PRAGMA table_info('transactions')")
+    .all()
+    .map((r) => r.name);
+
+  const addIfMissing = (col: string, def: string) => {
+    if (!txCols.includes(col)) {
+      db.exec(`ALTER TABLE transactions ADD COLUMN ${col} ${def}`);
+    }
+  };
+
+  // Review workflow columns on transactions
+  addIfMissing('review_status', "TEXT NOT NULL DEFAULT 'pending'");
+  addIfMissing('reviewed_at',   'TEXT');
+  addIfMissing('user_category', 'TEXT'); // user-set override; takes precedence over auto category
+
+  db.exec(`
+    -- Learned merchant → category rules
+    CREATE TABLE IF NOT EXISTS merchant_rules (
+      id          TEXT PRIMARY KEY,
+      pattern     TEXT NOT NULL UNIQUE, -- lowercased, trimmed description fragment
+      category    TEXT NOT NULL,
+      match_count INTEGER NOT NULL DEFAULT 1,
+      created_at  TEXT NOT NULL,
+      updated_at  TEXT NOT NULL
+    );
+
+    -- Undo log for review actions (bounded to last 50 operations)
+    CREATE TABLE IF NOT EXISTS review_actions (
+      id             TEXT PRIMARY KEY,
+      created_at     TEXT NOT NULL,
+      action         TEXT NOT NULL,        -- 'accept' | 'reject' | 'set_category' | 'bulk_accept' | 'bulk_reject'
+      transaction_ids TEXT NOT NULL,       -- JSON array
+      prev_statuses   TEXT NOT NULL,       -- JSON map id→{review_status, user_category}
+      category        TEXT                 -- for set_category actions
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_txns_review_status ON transactions(review_status);
+    CREATE INDEX IF NOT EXISTS idx_merchant_rules_pattern ON merchant_rules(pattern);
   `);
 }

@@ -9,5 +9,6 @@
     "jsx": "react-jsx",
     "types": []
   },
-  "include": ["src/renderer/**/*"]
+  "include": ["src/renderer/**/*"],
+  "exclude": ["src/renderer/__tests__/**/*"]
 }

@@ -69,3 +69,13 @@ Status: open
 Package: apps/desktop
 Description: RawImportRecord.rawReference is stored on the canonical Transaction for traceability, but a dedicated raw_references table (for storing full raw payloads) was deferred until file import is implemented.
 Resolution: pending.
+
+## KI-005 — better-sqlite3 native module: Electron vs system Node.js conflict
+
+- **Severity**: Medium (blocks either tests or app launch depending on which build is active)
+- **Affected**: `apps/desktop`
+- **Symptom**: `The module 'better_sqlite3.node' was compiled against a different Node.js version`
+- **Root cause**: `better-sqlite3` is a native Node.js addon. Electron embeds its own Node.js (v22, MODULE_VERSION 133); the system Node.js (v20, MODULE_VERSION 115) is used by Vitest. Only one compiled binary can exist at a time.
+- **Workaround for tests**: `cd node_modules/.pnpm/better-sqlite3@11.10.0/node_modules/better-sqlite3 && npx node-gyp rebuild`
+- **Workaround for app**: `cd apps/desktop && npx @electron/rebuild -f -w better-sqlite3`
+- **Permanent fix**: CI should rebuild before running tests. App packaging scripts should run `@electron/rebuild`.

@@ -21,10 +21,10 @@ function openTmpDb(): Database.Database {
 }
 
 describe('Migration — schema version', () => {
-  it('opens a fresh DB at schema version 2', () => {
+  it('opens a fresh DB at schema version 3', () => {
     const db = openTmpDb();
     const row = db.prepare<[], { version: number }>('SELECT version FROM schema_version').get();
-    expect(row?.version).toBe(2);
+    expect(row?.version).toBe(3);
     db.close();
   });
 
@@ -36,7 +36,7 @@ describe('Migration — schema version', () => {
     db1.close();
     const db2 = openDb(path);
     const row = db2.prepare<[], { version: number }>('SELECT version FROM schema_version').get();
-    expect(row?.version).toBe(2);
+    expect(row?.version).toBe(3);
     db2.close();
   });
 });
@@ -134,8 +134,49 @@ describe('Migration V2 — forward compatibility', () => {
   });
 });
 
-describe('Migration — V1 → V2 forward migration', () => {
-  it('a DB that starts with v1 schema gets migrated to v2', () => {
+describe('Migration V3 — review tables exist', () => {
+  it('creates the merchant_rules table', () => {
+    const db = openTmpDb();
+    const row = db.prepare<[], { name: string }>(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='merchant_rules'",
+    ).get();
+    expect(row?.name).toBe('merchant_rules');
+    db.close();
+  });
+
+  it('creates the review_actions table', () => {
+    const db = openTmpDb();
+    const row = db.prepare<[], { name: string }>(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='review_actions'",
+    ).get();
+    expect(row?.name).toBe('review_actions');
+    db.close();
+  });
+
+  it('transactions table has review_status column defaulting to pending', () => {
+    const db = openTmpDb();
+    const cols = db
+      .prepare<[], { name: string; dflt_value: string | null }>("PRAGMA table_info('transactions')")
+      .all();
+    const reviewStatus = cols.find((c) => c.name === 'review_status');
+    expect(reviewStatus).toBeTruthy();
+    expect(reviewStatus?.dflt_value).toBe("'pending'");
+    db.close();
+  });
+
+  it('transactions table has user_category column', () => {
+    const db = openTmpDb();
+    const cols = db
+      .prepare<[], { name: string }>("PRAGMA table_info('transactions')")
+      .all()
+      .map((c) => c.name);
+    expect(cols).toContain('user_category');
+    db.close();
+  });
+});
+
+describe('Migration — V1 → V3 forward migration', () => {
+  it('a DB that starts with v1 schema gets migrated to v3', () => {
     const dir = makeTmpDir();
     tmpDirs.push(dir);
     const path = join(dir, 'pocket.db');
@@ -161,13 +202,13 @@ describe('Migration — V1 → V2 forward migration', () => {
     `);
     legacyDb.close();
 
-    // Re-open through openDb — should detect v1 and run v2 migration
+    // Re-open through openDb — should detect v1 and run v2+v3 migrations
     const migratedDb = openDb(path);
 
     const versionRow = migratedDb
       .prepare<[], { version: number }>('SELECT version FROM schema_version')
       .get();
-    expect(versionRow?.version).toBe(2);
+    expect(versionRow?.version).toBe(3);
 
     const batchTable = migratedDb
       .prepare<[], { name: string }>("SELECT name FROM sqlite_master WHERE type='table' AND name='import_batches'")

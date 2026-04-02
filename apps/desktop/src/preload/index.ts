@@ -19,4 +19,18 @@ contextBridge.exposeInMainWorld('pocket', {
     delete: (account: string): Promise<void> =>
       ipcRenderer.invoke('secrets:delete', account),
   },
+  review: {
+    getBatches: () => ipcRenderer.invoke('review:getBatches'),
+    getTransactions: (opts: object) => ipcRenderer.invoke('review:getTransactions', opts),
+    accept: (ids: string[]) => ipcRenderer.invoke('review:accept', ids),
+    reject: (ids: string[]) => ipcRenderer.invoke('review:reject', ids),
+    setCategory: (id: string, category: string, saveMerchantRule: boolean) =>
+      ipcRenderer.invoke('review:setCategory', id, category, saveMerchantRule),
+    undo: () => ipcRenderer.invoke('review:undo'),
+  },
+  merchantRules: {
+    getAll: () => ipcRenderer.invoke('merchantRules:getAll'),
+    suggest: (description: string) => ipcRenderer.invoke('merchantRules:suggest', description),
+    delete: (id: string) => ipcRenderer.invoke('merchantRules:delete', id),
+  },
 });

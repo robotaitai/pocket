@@ -47,7 +47,7 @@ describe('openDb', () => {
     const row = db
       .prepare<[], { version: number }>('SELECT version FROM schema_version')
       .get();
-    expect(row?.version).toBe(2);
+    expect(row?.version).toBe(3);
   });
 
   it('is idempotent — running migrations twice does not throw', () => {

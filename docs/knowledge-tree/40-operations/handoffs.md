@@ -247,3 +247,40 @@ Agent-to-agent handoff log. Append after completing each step. Never delete entr
 - Agent-assisted extraction path not yet implemented — contract is defined by `RawImportRecord`
 - `raw_references` table (for opaque raw source storage) not added — deferred until file import is implemented
 - `merchants` table populated by normalization not yet wired — merchant resolution is available as a type but not called from the pipeline yet
+
+## Step 5 — Review Queue, Import Validation, and Ultra-Fast Tagging Workflow — 2026-04-02
+
+### What was done
+
+- Schema v3 migration: added `review_status` (pending/accepted/rejected), `reviewed_at`, `user_category` columns to `transactions`; created `merchant_rules` and `review_actions` tables
+- `apps/desktop/src/main/db/review.ts`: full review queue DB layer — `getBatchSummaries`, `getTransactionsForReview`, `setReviewStatus`, `setTransactionCategory`, `undoLastAction`
+- `apps/desktop/src/main/db/merchant-rules.ts`: merchant memory — `suggestCategory`, `recordMerchantRule`, `getAllMerchantRules`, `deleteMerchantRule`
+- IPC handlers in `main/index.ts`: `review:getBatches`, `review:getTransactions`, `review:accept`, `review:reject`, `review:setCategory`, `review:undo`, `merchantRules:*`
+- Preload and `pocket.d.ts` updated with full typed API surface
+- Renderer components: `SourceBadge`, `ConfidenceIndicator`, `QuickTag`, `BulkActions`, `KeyboardHelp`, `TransactionRow`
+- `ReviewQueue` page: batch list with pending/accepted/rejected counts
+- `BatchReview` page: keyboard-first (j/k nav, a/r, t tag, Space select, u undo, ? help)
+- `Dashboard` updated with Review / Accounts / Settings tabs
+- 82 tests across 12 files — 6 node-env DB/migration suites, 6 jsdom component suites
+
+### Decisions made
+
+- `review_status` is DB-layer-only; canonical `Transaction` type stays clean — review is workflow, not data model
+- `merchant_rules` uses lowercased+trimmed exact match; fuzzy deferred
+- `review_actions` capped at 50 for bounded undo history
+- `pocket.d.ts` uses `declare global { interface Window }` because file has module exports
+- `better-sqlite3` native module must be rebuilt separately for system Node.js (tests) and Electron (app launch) — see known-issues.md
+
+### What the next agent must read
+
+- `apps/desktop/src/main/db/review.ts`
+- `apps/desktop/src/main/db/merchant-rules.ts`
+- `apps/desktop/src/renderer/pages/BatchReview.tsx`
+- `apps/desktop/src/renderer/pocket.d.ts`
+
+### Pending / deferred
+
+- File-based importers (PDF/XLSX/CSV) — must produce `RawImportRecord[]` then normalizeImport → DB insert with `review_status='pending'`
+- Connector import flow not wired end-to-end — credentials UI and import button not yet built
+- Duplicate resolution UI — `findPotentialDuplicates()` exists but not surfaced in BatchReview
+- Merchant fuzzy matching — current pattern match is exact; Levenshtein deferred
