@@ -34,3 +34,12 @@ external scraper
 
 - [decisions/ADR-001-desktop-renderer.md](./decisions/ADR-001-desktop-renderer.md) — Electron vs Tauri
 - [decisions/ADR-002-local-database.md](./decisions/ADR-002-local-database.md) — SQLite vs other
+
+## Connector Runtime Contract
+
+`@pocket/connectors-israel` wraps `external/israeli-bank-scrapers` behind the `Connector` interface. Key points:
+- The real scraper is loaded at runtime via a non-literal import path (`scraper-loader.ts`) to avoid TypeScript resolving its unbuilt module graph
+- The scraper must be built (`npm run build` in `external/`) before running real connectors
+- Tests always use `FixtureConnector` — no puppeteer, no network, no credentials
+- Transaction IDs are SHA-256 deterministic hashes for idempotent imports
+- Auth errors are never retried; network/unknown errors retry up to 3× with exponential backoff

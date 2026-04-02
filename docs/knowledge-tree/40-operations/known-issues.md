@@ -48,3 +48,10 @@ Status: resolved (2026-04-02)
 Package: repo
 Description: ADR-002 was pending. Now resolved: better-sqlite3 chosen.
 Resolution: ADR-002 updated to accepted. DB layer implemented in apps/desktop/src/main/db/.
+
+## 2026-04-02 — Scraper build not wired into CI
+
+Status: open
+Package: packages/connectors-israel
+Description: HapoalimConnector and MaxConnector load the scraper from external/israeli-bank-scrapers/lib/index.js at runtime. The scraper has no compiled lib/ directory (it is TypeScript source only). Running the real scrapers requires `cd external/israeli-bank-scrapers && npm run build` first. Tests use FixtureConnector and are not affected.
+Resolution: pending — add a CI step to build the scraper when integration tests are added.

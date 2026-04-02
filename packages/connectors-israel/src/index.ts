@@ -1,4 +1,17 @@
-// @pocket/connectors-israel — Step 0 stub
-// This is the ONLY package allowed to import from external/israeli-bank-scrapers.
-// TODO: wrap scraper output into @pocket/core-model types
-export {};
+export type {
+  Connector,
+  ConnectorDescriptor,
+  ImportOptions,
+  ImportResult,
+  ImportSuccess,
+  ImportError,
+} from './connector.js';
+
+export { normalizeAccount, normalizeTransaction, transactionId } from './normalize.js';
+export { withRetry } from './retry.js';
+export type { RetryOptions } from './retry.js';
+
+export { BaseAdapter } from './adapters/base.js';
+export { HapoalimConnector } from './adapters/hapoalim.js';
+export { MaxConnector } from './adapters/max.js';
+export { FixtureConnector } from './adapters/fixture.js';

@@ -138,3 +138,49 @@ Agent-to-agent handoff log. Append after completing each step. Never delete entr
 
 - Electron native module rebuild (better-sqlite3, keytar) for packaged distribution — addressed at release time
 - No app build/packaging CI job yet — add when distribution is needed
+
+---
+
+## Step 3 — Connector framework and scraper adapter boundary — 2026-04-02
+
+### What was done
+
+- Defined the `Connector` interface and all supporting types in `packages/connectors-israel/src/connector.ts`:
+  - `ConnectorDescriptor` — metadata (id, name, institutionType, credentialFields)
+  - `ImportOptions` — date range for a scrape run
+  - `ImportResult` (`ImportSuccess | ImportError`) — normalized output
+- Declared minimal scraper types in `src/scraper-types.ts` — isolated from the real scraper source; prevents scraper's module graph from entering typecheck
+- Implemented `BaseAdapter` — normalizes raw scraper output to core-model types; classifies errors (auth / network / unknown); never logs credential values
+- Implemented `HapoalimConnector` (bank) and `MaxConnector` (card) — both extend `BaseAdapter`
+- Implemented `FixtureConnector` — test-only connector with no puppeteer/network dependency
+- Implemented `withRetry` in `src/retry.ts` — exponential backoff, max 3 attempts, auth errors never retried
+- Implemented `normalizeAccount` / `normalizeTransaction` / `transactionId` in `src/normalize.ts` — deterministic SHA-256 IDs for idempotency
+- Created `src/scraper-loader.ts` — loads the compiled scraper via a non-literal import path, preventing TypeScript from statically resolving the scraper module tree
+- Added sanitized fixtures in `packages/test-fixtures/src/index.ts` (accounts, transactions, balances)
+- Added raw scraper-shaped fixtures in `packages/connectors-israel/tests/fixtures/scraper-accounts.ts`
+- 23 real tests: normalize.test.ts (11), connector-contract.test.ts (7), retry.test.ts (5)
+- Total: 41 tests across the workspace, all passing
+
+### Decisions made
+
+- **Scraper import isolation via non-literal path**: `SCRAPER_PATH: string = '...'` causes TypeScript to treat `import(SCRAPER_PATH)` as `Promise<any>`, preventing the scraper's unbuilt module graph from being typechecked. The scraper must be built (`npm run build` in `external/`) before the connector runs at runtime.
+- **Minimal type declarations** in `scraper-types.ts`: avoids importing from the scraper's source at typecheck time; must be kept in sync manually with `external/israeli-bank-scrapers/src/`
+- **FixtureConnector** for tests: no puppeteer, no network, no real scraper; tests the full normalize + contract surface
+- **Auth errors never retried**: `withRetry` exits immediately on `errorKind: 'auth'`; wrong credentials won't be fixed by retrying
+- **SHA-256 IDs truncated to 32 chars**: sufficient uniqueness for a single-user local DB; deterministic for idempotent upserts
+- **`exports` field on `@pocket/core-model`**: points `"types"` to `./src/index.ts` so workspace packages can typecheck against source without a build step
+
+### What the next agent must read
+
+- `packages/connectors-israel/src/connector.ts` — the Connector interface
+- `packages/connectors-israel/src/normalize.ts` — idempotency logic
+- `packages/connectors-israel/src/retry.ts` — retry policy
+- `packages/connectors-israel/src/scraper-loader.ts` — how the real scraper is loaded at runtime
+- `packages/connectors-israel/src/adapters/base.ts` — adapter base class
+- `packages/test-fixtures/src/index.ts` — canonical test data
+
+### Pending / deferred
+
+- Scraper build step not wired into CI — the scraper (`external/`) must be built manually before `HapoalimConnector` or `MaxConnector` can run at runtime
+- No log-redaction test covering the production adapters — FixtureConnector never logs; production adapter logging should be verified in an integration test once the scraper is built in CI
+- Step 4 (rules engine and insights) not started
