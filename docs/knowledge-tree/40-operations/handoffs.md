@@ -66,3 +66,34 @@ Agent-to-agent handoff log. Append after completing each step. Never delete entr
 ### Pending / deferred
 
 - ADR-001 and ADR-002 still pending — Step 2 (desktop scaffold + data layer) requires these decisions
+
+---
+
+## Repo Hygiene and Structure Guardrails — 2026-04-02
+
+### What was done
+
+- Created `scripts/check-repo-hygiene.mjs` — enforces allowed root entries, no stray markdown, .gitignore sanity, submodule path, no forbidden tracked files, knowledge tree structure
+- Updated `.gitignore` to cover `out/`, `*.db`, `*.sqlite`, `*.csv`, `*.log`, `.cache/`, `.vite/`, `Thumbs.db`, `secrets.enc.json`
+- Added "Repo cleanliness rule" section to `AGENTS.md` — agents must now follow folder ownership rules
+- Added `check:hygiene` script to root `package.json`
+- Added `repo-hygiene` CI job (runs `check-repo-hygiene.mjs` in Node.js, no pnpm install needed)
+- Confirmed root contains only approved entries; no cleanup of existing files was required
+
+### Decisions made
+
+- Hygiene script uses `git ls-tree --name-only HEAD` for root check — reads from git index, not filesystem, so local gitignored artifacts (node_modules, etc.) are invisible to the check
+- Forbidden tracked file check uses `git ls-files` — reliable in both CI and local
+- `check-repo-hygiene.mjs` and `check-structure.sh` are complementary: structure checks that required files exist; hygiene checks that forbidden things are absent
+- `.mjs` chosen for the hygiene script — zero dependencies, runs with `node` directly in CI without pnpm install
+
+### What the next agent must read
+
+- `AGENTS.md` (updated with repo cleanliness rule)
+- `scripts/check-repo-hygiene.mjs` (understand what is enforced automatically)
+- `docs/knowledge-tree/20-architecture/decisions/ADR-001-desktop-renderer.md`
+- `docs/knowledge-tree/20-architecture/decisions/ADR-002-local-database.md`
+
+### Pending / deferred
+
+- ADR-001 and ADR-002 still pending — must be resolved before Step 2 coding begins

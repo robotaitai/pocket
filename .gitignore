@@ -1,7 +1,26 @@
 node_modules/
 dist/
+out/
 *.tsbuildinfo
 .DS_Store
+Thumbs.db
 .turbo/
+.cache/
+.vite/
+
+# secrets and credentials
 .env
 .env.*
+secrets.enc.json
+
+# local databases and exports
+*.db
+*.sqlite
+*.csv
+
+# runtime logs
+*.log
+
+# editor and OS
+*.swp
+*.swo

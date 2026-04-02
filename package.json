@@ -8,7 +8,8 @@
     "test": "pnpm -r test",
     "lint:md": "markdownlint-cli2 \"**/*.md\" \"#**/node_modules\" \"#external\"",
     "lint": "echo 'workspace lint placeholder — ESLint not yet configured' && exit 0",
-    "check:structure": "bash scripts/check-structure.sh"
+    "check:structure": "bash scripts/check-structure.sh",
+    "check:hygiene": "node scripts/check-repo-hygiene.mjs"
   },
   "devDependencies": {
     "markdownlint-cli2": "^0.17.2",

@@ -44,3 +44,4 @@ Treat as an external dependency. Patch the fork only when necessary. Document sc
 |---|---|---|
 | 0 | Repo skeleton, knowledge tree, submodule | Done |
 | 1 | Foundation and workspace bootstrap | Done |
+| hygiene | Repo hygiene and structure guardrails | Done |

@@ -51,6 +51,20 @@ Read a full branch: start at `README.md`, follow every file linked from it.
 - No speculative abstractions: solve the task as stated
 - Tests must be real, not mocked at the database layer
 
+## Repo cleanliness rule
+
+Keep the repository structurally clean.
+
+- Do not add new root-level files or folders unless clearly justified.
+- Put durable project knowledge under `/docs/knowledge-tree/`.
+- Put reusable code under `/packages/`.
+- Put app entrypoints under `/apps/`.
+- Put external/submodule dependencies under `/external/`.
+- Put automation or helper scripts under `/scripts/`.
+- Keep tool-specific config isolated, for example `.claude/` or `.cursor/rules/`.
+- Do not create scratch files, duplicate docs, or vague folders like `misc`, `temp`, or `notes-final`.
+- If a new file has no obvious home, stop and place it deliberately rather than adding clutter.
+
 ## Handoff format
 
 When completing a step, append to `docs/knowledge-tree/40-operations/handoffs.md`:

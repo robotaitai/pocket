@@ -110,3 +110,15 @@ jobs:
         with:
           submodules: false
       - run: bash scripts/check-structure.sh
+
+  repo-hygiene:
+    name: Repo Hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: node scripts/check-repo-hygiene.mjs
