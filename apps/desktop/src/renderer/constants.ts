@@ -9,8 +9,10 @@ export const CATEGORIES = [
   'education',
   'banking',
   'savings',
+  'investments',
   'income',
   'transfer',
+  'credit_card_payment',
   'other',
 ] as const;
 
@@ -27,10 +29,22 @@ export const CATEGORY_LABELS: Record<string, string> = {
   education: 'Education',
   banking: 'Banking',
   savings: 'Savings',
+  investments: 'Investments',
   income: 'Income',
   transfer: 'Transfer',
+  credit_card_payment: 'Credit Card Payment',
   other: 'Other',
 };
+
+// Categories that represent transfers of wealth rather than real spending.
+// Excluded from expense totals in all summaries and dashboards.
+export const NON_EXPENSE_CATEGORIES = new Set([
+  'investments',
+  'credit_card_payment',
+  'transfer',
+  'income',
+  'savings',
+]);
 
 export const SOURCE_TYPE_LABELS: Record<string, string> = {
   scraper: 'Scraper',

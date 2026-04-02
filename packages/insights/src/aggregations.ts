@@ -1,6 +1,16 @@
 import type { Transaction } from '@pocket/core-model';
 import type { DateRange, PeriodSummary } from './types.js';
 
+// Categories that represent transfers of wealth rather than real spending.
+// Kept in sync with renderer/constants.ts NON_EXPENSE_CATEGORIES.
+const NON_EXPENSE_CATEGORIES = new Set([
+  'investments',
+  'credit_card_payment',
+  'transfer',
+  'income',
+  'savings',
+]);
+
 /**
  * Compute income / expense / net for a set of accepted transactions.
  * Caller is responsible for pre-filtering to the desired date range.
@@ -15,10 +25,14 @@ export function summarizePeriod(
   let hasLowConfidence = false;
 
   for (const t of transactions) {
-    // Credit card payment transactions are transfers from a bank account to a card company.
-    // Excluding them prevents double-counting: the individual card charges are tracked
-    // via the card connector; counting the settlement debit too would inflate expenses.
-    if (t.category === 'credit_card_payment') continue;
+    // These categories represent transfers of wealth rather than real spending.
+    // Excluding them prevents double-counting and gives a true expense figure:
+    //   credit_card_payment — bank debit settling a card balance (card charges tracked separately)
+    //   investments         — transfers to brokerages, pension funds, study funds
+    //   transfer            — inter-account moves
+    //   income              — positive inflows not treated as expenses
+    //   savings             — deliberate savings contributions
+    if (NON_EXPENSE_CATEGORIES.has(t.category ?? '')) continue;
 
     if (t.amount > 0) {
       income += t.amount;
