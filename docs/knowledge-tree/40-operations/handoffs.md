@@ -284,3 +284,50 @@ Agent-to-agent handoff log. Append after completing each step. Never delete entr
 - Connector import flow not wired end-to-end — credentials UI and import button not yet built
 - Duplicate resolution UI — `findPotentialDuplicates()` exists but not surfaced in BatchReview
 - Merchant fuzzy matching — current pattern match is exact; Levenshtein deferred
+
+## Step 6 — Insights, Recurring Payments, Import Health, and Chat over Normalized Data — 2026-04-02
+
+### What was done
+
+- `packages/insights` fully implemented: aggregations, recurring detection, merchant summaries, import health, pattern-based chat engine, CSV export
+  - `summarizePeriod`, `comparePeriods` — period income/expense/net with low-confidence flagging
+  - `detectRecurring` — groups by normalized description, computes median interval, classifies period (weekly/biweekly/monthly/quarterly), confidence score
+  - `buildMerchantSummaries`, `findNewAndSuspiciousMerchants` — merchant spend ranking, new/suspicious detection
+  - `buildImportHealthReport` — freshness labels (today/this-week/this-month/older), source type summaries
+  - `parseChatQuestion` — regex pattern matching to structured ChatQueryPlan (13 intents)
+  - `exportToCsv` — RFC 4180-compliant CSV with proper quoting
+- `apps/desktop/src/main/db/insights.ts` — SQL queries: `getAcceptedTransactions`, `getBatchHealthRows`, `searchTransactions`, `getTransactionsForExport`
+- `apps/desktop/src/main/chat-executor.ts` — executes ChatQueryPlan against DB, formats natural language answers with supporting sources
+- IPC handlers: `insights:getSummary`, `insights:getRecurring`, `insights:getMerchants`, `insights:getNewMerchants`, `insights:search`, `insights:getImportHealth`, `insights:chat`, `insights:export` (native dialog save)
+- New renderer pages: `DashboardHome`, `RecurringPayments`, `MerchantView`, `Timeline`, `ImportHealth`, `Chat`
+  - Dashboard now has 7 tabs: Home / Review / Recurring / Merchants / Timeline / Import Health / Chat
+  - Timeline has debounced live search with CSV export button
+  - Chat shows suggested questions, sources per answer, uncertainty notes, query plan label
+- `pocket.d.ts` expanded with full typed insights API
+- 201 tests total across all packages: 50 new insights tests (aggregation, recurring, merchants, chat, export, import health)
+
+### Decisions made
+
+- Chat is purely pattern-based with NO external LLM dependency — grounded queries only, never invents data
+- "Unknown" intent returns a list of supported questions instead of failing silently
+- CSV export uses Electron's native save dialog via `dialog.showSaveDialog` — no upload, fully local
+- `getAcceptedTransactions` re-hydrates canonical `Transaction` objects from DB (avoids storing duplicates of the canonical model)
+- `detectRecurring` operates on in-memory arrays — fast enough for personal-scale data (<10k transactions)
+- Merchant "suspicious" heuristic: untagged + |avg_amount| > 200 ILS — intentionally conservative
+- `freshnessLabel` is computed in the pure `buildImportHealthReport` function, not in SQL, to keep DB layer simple
+
+### What the next agent must read
+
+- `packages/insights/src/chat.ts` — supported intents and pattern matching
+- `apps/desktop/src/main/chat-executor.ts` — how intents map to DB queries and answers
+- `apps/desktop/src/main/db/insights.ts` — SQL query layer
+- `apps/desktop/src/renderer/pages/Chat.tsx` — chat UX
+- `apps/desktop/src/renderer/pages/Dashboard.tsx` — tab routing
+
+### Pending / deferred
+
+- LLM-enhanced chat: post-query formatting via an optional API key — safe because only aggregated results (not raw transactions) would be sent
+- Connector import flow not wired end-to-end — no UI to trigger a scraper import run yet
+- File-based importers (PDF/XLSX/CSV) still not implemented
+- Timeline paginates at 200 results — add virtual scrolling for larger datasets
+- Recurring detection could improve with fuzzy merchant matching across slightly different descriptions

@@ -33,4 +33,14 @@ contextBridge.exposeInMainWorld('pocket', {
     suggest: (description: string) => ipcRenderer.invoke('merchantRules:suggest', description),
     delete: (id: string) => ipcRenderer.invoke('merchantRules:delete', id),
   },
+  insights: {
+    getSummary: (periodKey: string) => ipcRenderer.invoke('insights:getSummary', periodKey),
+    getRecurring: () => ipcRenderer.invoke('insights:getRecurring'),
+    getMerchants: (limit: number) => ipcRenderer.invoke('insights:getMerchants', limit),
+    getNewMerchants: () => ipcRenderer.invoke('insights:getNewMerchants'),
+    search: (filter: object) => ipcRenderer.invoke('insights:search', filter),
+    getImportHealth: () => ipcRenderer.invoke('insights:getImportHealth'),
+    chat: (question: string) => ipcRenderer.invoke('insights:chat', question),
+    export: (filter: object) => ipcRenderer.invoke('insights:export', filter),
+  },
 });

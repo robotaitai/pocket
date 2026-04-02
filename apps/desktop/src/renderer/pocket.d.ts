@@ -57,6 +57,104 @@ export interface MerchantRule {
   updatedAt: string;
 }
 
+export interface PeriodSummary {
+  period: { start: string; end: string };
+  income: number;
+  expenses: number;
+  net: number;
+  transactionCount: number;
+  currency: string;
+  hasLowConfidenceData: boolean;
+}
+
+export interface RecurringPayment {
+  description: string;
+  effectiveCategory: string | null;
+  estimatedAmount: number;
+  period: string;
+  occurrenceCount: number;
+  firstSeen: string;
+  lastSeen: string;
+  nextExpectedDate: string | null;
+  confidence: number;
+}
+
+export interface MerchantSummary {
+  description: string;
+  effectiveCategory: string | null;
+  transactionCount: number;
+  total: number;
+  avgAmount: number;
+  lastSeen: string;
+  isNew: boolean;
+  isSuspicious: boolean;
+}
+
+export interface ImportHealthReport {
+  batches: Array<{
+    batchId: string;
+    createdAt: string;
+    sourceType: string;
+    extractionMethod: string;
+    status: string;
+    total: number;
+    pending: number;
+    accepted: number;
+    rejected: number;
+    freshnessLabel: 'today' | 'this-week' | 'this-month' | 'older';
+  }>;
+  pendingReviewCount: number;
+  acceptedCount: number;
+  rejectedCount: number;
+  oldestBatchDate: string | null;
+  newestBatchDate: string | null;
+  sourceTypeSummary: Record<string, { batchCount: number; transactionCount: number; lastImport: string | null }>;
+}
+
+export interface ChatAnswer {
+  text: string;
+  sources: Array<{
+    transactionId?: string;
+    description: string;
+    date: string;
+    amount: number;
+    currency: string;
+    importBatchId?: string;
+  }>;
+  uncertainty: string | null;
+  queryPlan: { intent: string; params: Record<string, unknown>; humanReadable: string };
+}
+
+export interface SearchFilter {
+  query?: string;
+  startDate?: string;
+  endDate?: string;
+  category?: string;
+  reviewStatus?: string;
+  minAmount?: number;
+  maxAmount?: number;
+}
+
+export interface ExportResult {
+  success: boolean;
+  filePath?: string;
+  reason?: string;
+}
+
+export interface TransactionRow {
+  id: string;
+  accountId: string;
+  date: string;
+  description: string;
+  amount: number;
+  originalCurrency: string;
+  category?: string;
+  sourceType: string;
+  importBatchId: string;
+  confidenceScore?: number;
+  warnings: unknown[];
+}
+
 export interface PocketApi {
   settings: {
     get(key: string): Promise<string | undefined>;
@@ -79,6 +177,16 @@ export interface PocketApi {
     getAll(): Promise<MerchantRule[]>;
     suggest(description: string): Promise<string | null>;
     delete(id: string): Promise<void>;
+  };
+  insights: {
+    getSummary(periodKey: string): Promise<PeriodSummary>;
+    getRecurring(): Promise<RecurringPayment[]>;
+    getMerchants(limit: number): Promise<MerchantSummary[]>;
+    getNewMerchants(): Promise<MerchantSummary[]>;
+    search(filter: SearchFilter): Promise<TransactionRow[]>;
+    getImportHealth(): Promise<ImportHealthReport>;
+    chat(question: string): Promise<ChatAnswer>;
+    export(filter: SearchFilter): Promise<ExportResult>;
   };
 }
 

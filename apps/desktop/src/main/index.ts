@@ -17,6 +17,27 @@ import {
   getAllMerchantRules,
   deleteMerchantRule,
 } from './db/merchant-rules.js';
+import {
+  getAcceptedTransactions,
+  getBatchHealthRows,
+  searchTransactions,
+  getTransactionsForExport,
+  type SearchFilter,
+} from './db/insights.js';
+import { executeChat } from './chat-executor.js';
+import {
+  summarizePeriod,
+  detectRecurring,
+  buildMerchantSummaries,
+  findNewAndSuspiciousMerchants,
+  buildImportHealthReport,
+  exportToCsv,
+  currentMonth,
+  lastMonth,
+  lastNMonths,
+} from '@pocket/insights';
+import { dialog } from 'electron';
+import { writeFile } from 'node:fs/promises';
 
 // __dirname is available because this file compiles to CJS (no "type":"module" in package.json)
 const POCKET_SERVICE = 'pocket';
@@ -75,6 +96,59 @@ async function createWindow(): Promise<void> {
   ipcMain.handle('merchantRules:getAll', () => getAllMerchantRules(db));
   ipcMain.handle('merchantRules:suggest', (_e, description: string) => suggestCategory(db, description));
   ipcMain.handle('merchantRules:delete', (_e, id: string) => deleteMerchantRule(db, id));
+
+  // Insights — period summaries
+  ipcMain.handle('insights:getSummary', (_e, periodKey: string) => {
+    const range = periodKey === 'last-month' ? lastMonth()
+      : periodKey === 'last-3-months' ? lastNMonths(3)
+      : currentMonth();
+    const txns = getAcceptedTransactions(db, range);
+    return summarizePeriod(txns, range);
+  });
+
+  ipcMain.handle('insights:getRecurring', () => {
+    const txns = getAcceptedTransactions(db);
+    return detectRecurring(txns);
+  });
+
+  ipcMain.handle('insights:getMerchants', (_e, limit: number) => {
+    const txns = getAcceptedTransactions(db);
+    return buildMerchantSummaries(txns).slice(0, limit ?? 20);
+  });
+
+  ipcMain.handle('insights:getNewMerchants', () => {
+    const txns = getAcceptedTransactions(db);
+    return findNewAndSuspiciousMerchants(txns);
+  });
+
+  ipcMain.handle('insights:search', (_e, filter: SearchFilter) =>
+    searchTransactions(db, filter),
+  );
+
+  ipcMain.handle('insights:getImportHealth', () => {
+    const rows = getBatchHealthRows(db);
+    return buildImportHealthReport(rows);
+  });
+
+  ipcMain.handle('insights:chat', (_e, question: string) =>
+    executeChat(db, question),
+  );
+
+  ipcMain.handle('insights:export', async (_e, filter: SearchFilter) => {
+    const txns = getTransactionsForExport(db, filter);
+    const reviewStatuses: Record<string, string> = {};
+    for (const t of txns) reviewStatuses[t.id] = t.reviewStatus;
+    const csv = exportToCsv(txns, reviewStatuses);
+
+    const { filePath, canceled } = await dialog.showSaveDialog({
+      title: 'Export transactions',
+      defaultPath: `pocket-export-${new Date().toISOString().slice(0, 10)}.csv`,
+      filters: [{ name: 'CSV', extensions: ['csv'] }],
+    });
+    if (canceled || !filePath) return { success: false, reason: 'canceled' };
+    await writeFile(filePath, csv, 'utf-8');
+    return { success: true, filePath };
+  });
 
   const firstRun = getSetting(db, 'firstRunComplete') !== 'true';
 
