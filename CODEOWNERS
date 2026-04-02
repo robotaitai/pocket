@@ -1,0 +1,5 @@
+# All files require review from the project owner.
+* @robotaitai
+
+# Scraper submodule changes require extra scrutiny.
+/external/ @robotaitai

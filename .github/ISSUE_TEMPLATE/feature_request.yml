@@ -1,0 +1,35 @@
+name: Feature Request
+description: Suggest a new feature or improvement
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Read [docs/knowledge-tree/10-product/README.md](../docs/knowledge-tree/10-product/README.md) first to confirm this aligns with product scope.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or motivation
+      description: What problem does this solve for a user?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Constraint check
+      options:
+        - label: This does not upload raw transactions, balances, or account identifiers
+          required: true
+        - label: This does not add write-back actions to banks or card providers
+          required: true
+        - label: This fits the Israel-first, local-first, read-only scope
+          required: true

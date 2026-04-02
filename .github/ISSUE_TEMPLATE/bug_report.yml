@@ -1,0 +1,40 @@
+name: Bug Report
+description: Report a bug in Pocket
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before submitting: check `docs/knowledge-tree/40-operations/known-issues.md` to see if this is already tracked.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened? What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Environment
+      description: OS, Node version, pnpm version, bank/card institution affected (if relevant)
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      description: Do NOT include raw transaction data, account numbers, or credentials in this issue.
+      options:
+        - label: This issue contains no sensitive financial data
+          required: true
