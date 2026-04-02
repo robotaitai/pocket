@@ -184,3 +184,66 @@ Agent-to-agent handoff log. Append after completing each step. Never delete entr
 - Scraper build step not wired into CI — the scraper (`external/`) must be built manually before `HapoalimConnector` or `MaxConnector` can run at runtime
 - No log-redaction test covering the production adapters — FixtureConnector never logs; production adapter logging should be verified in an integration test once the scraper is built in CI
 - Step 4 (rules engine and insights) not started
+
+---
+
+## Step 4 — Canonical finance model, import provenance, normalization boundary — 2026-04-02
+
+### What was done
+
+**`@pocket/core-model` — new canonical model:**
+- `provenance.ts`: `SourceType` ('scraper'|'pdf'|'xlsx'|'csv'|'api'|'manual'), `ExtractionMethod`, `Warning`, `Provenance` interface
+- `import-batch.ts`: `ImportBatch`, `ImportBatchStatus`, `createImportBatch()` factory
+- `merchant.ts`: `Merchant` (normalized name + aliases for cross-source merchant identity)
+- `raw-import.ts`: `RawImportRecord` — the single input type for all ingestion paths
+- `normalization.ts`: `transactionId()` (moved from connectors-israel), `validateRawRecord()`, `normalizeImport()` pipeline
+- `dedupe.ts`: `deduplicateById()` (exact + fuzzy cross-source), `findPotentialDuplicates()` (intra-batch)
+- Updated `Transaction` — now requires all `Provenance` fields, `schemaVersion`, `warnings[]`, `confidenceScore?`
+- 49 tests covering normalization, dedupe, provenance preservation, schema validation, malformed payloads
+
+**`apps/desktop` — DB schema v2:**
+- `init.ts` restructured into versioned forward migrations (`migrateV1`, `migrateV2`)
+- V2 adds: `import_batches`, `merchants` tables; provenance columns on `transactions`
+- Migration is idempotent and detects existing schema version to apply only pending steps
+- V1→V2 forward migration test included (simulates a legacy DB being upgraded)
+
+**`@pocket/connectors-israel` — boundary tightened:**
+- `ImportSuccess.transactions` replaced by `ImportSuccess.rawRecords: RawImportRecord[]`
+- `normalizeTransaction()` replaced by `normalizeRawRecord()` — produces pre-canonical records with no `importBatchId`
+- `transactionId()` moved to `@pocket/core-model/src/normalization.ts`
+- Connector tests updated to run the full pipeline: connector → rawRecords → `normalizeImport()` → canonical Transactions
+
+**`@pocket/test-fixtures` — updated to schema v2:**
+- All fixture `Transaction` objects now carry full provenance fields
+- Added `fixtureImportBatch`, `fixturePdfImportBatch`, `fixtureRawRecords`
+
+**Test coverage summary:**
+- core-model: 49 tests (normalization 20, schema-validation 15, dedupe 8, provenance 6)
+- connectors-israel: 20 tests (contract 8, normalize 7, retry 5)
+- desktop: 27 tests (migration 9, db 7, settings 6, secrets 5)
+- Total: 96 tests, all green
+
+### Decisions made
+
+- **Normalization boundary is strict**: connectors-israel never produces canonical `Transaction` directly; it produces `RawImportRecord[]`. The caller always runs `normalizeImport()` from `@pocket/core-model` before touching the DB or sending to UI.
+- **Cross-source deduplication via deterministic id**: `sha256(accountId|date|processedDate|originalAmount|originalCurrency|description).slice(0,32)` — same real transaction from any source produces the same id. No source-specific prefix.
+- **Fuzzy deduplication flags, not silences**: same (accountId+date+amount) with different descriptions → `potentialDuplicates` list for user review. NOT silently merged.
+- **Ambiguous values required to carry warnings**: agent/OCR extractors must set `confidenceScore` and populate `warnings[]`. The pipeline propagates these; it never drops them.
+- **Schema versioning via version table + explicit migration functions**: forward-only, idempotent, detectable from cold start. No ORM.
+- **Vitest workspace alias**: connectors-israel vitest config aliases `@pocket/core-model` to its TypeScript source, enabling tests without a build step across packages.
+
+### What the next agent must read
+
+- `packages/core-model/src/normalization.ts` — canonical pipeline entry point
+- `packages/core-model/src/raw-import.ts` — the universal ingestion input format
+- `packages/core-model/src/dedupe.ts` — deduplication logic and types
+- `packages/core-model/src/import-batch.ts` — how batches are created and tracked
+- `apps/desktop/src/main/db/init.ts` — schema v2 and migration structure
+- `docs/knowledge-tree/20-architecture/README.md`
+
+### Pending / deferred
+
+- File-based importers (PDF/XLSX/CSV) not yet implemented — they must produce `RawImportRecord[]` with appropriate `sourceType`/`extractionMethod` and `confidenceScore` before calling `normalizeImport()`
+- Agent-assisted extraction path not yet implemented — contract is defined by `RawImportRecord`
+- `raw_references` table (for opaque raw source storage) not added — deferred until file import is implemented
+- `merchants` table populated by normalization not yet wired — merchant resolution is available as a type but not called from the pipeline yet

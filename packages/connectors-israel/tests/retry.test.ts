@@ -5,7 +5,8 @@ import type { ImportResult } from '../src/connector.js';
 const successResult: ImportResult = {
   status: 'success',
   accounts: [],
-  transactions: [],
+  rawRecords: [],
+  connectorId: 'fixture',
   durationMs: 1,
 };
 

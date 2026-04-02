@@ -43,3 +43,23 @@ external scraper
 - Tests always use `FixtureConnector` — no puppeteer, no network, no credentials
 - Transaction IDs are SHA-256 deterministic hashes for idempotent imports
 - Auth errors are never retried; network/unknown errors retry up to 3× with exponential backoff
+
+## Canonical Model and Normalization Boundary (Step 4)
+
+All ingestion paths — scrapers, file imports, future API connectors — must pass through
+the normalization pipeline in `@pocket/core-model` before data reaches the DB or UI.
+
+```
+Source (scraper / PDF / XLSX / CSV / API)
+  → RawImportRecord[]               (connector/importer output)
+    → normalizeImport(raws, batch)  (@pocket/core-model pipeline)
+      → Transaction[]               (canonical, with full Provenance)
+        → DB / UI / insights        (consumers of canonical model)
+```
+
+Key invariants:
+- Every `Transaction` carries required `Provenance` fields — they are never dropped
+- `transactionId` is deterministic and source-agnostic — cross-source dedup works by id
+- Ambiguous extracted fields carry `warnings[]` and `confidenceScore` — not silently guessed
+- `connectors-israel` never produces `Transaction` directly — only `RawImportRecord[]`
+- DB schema is versioned; migrations are forward-only and idempotent (schema v2 as of step 4)

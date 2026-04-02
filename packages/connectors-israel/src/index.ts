@@ -7,7 +7,7 @@ export type {
   ImportError,
 } from './connector.js';
 
-export { normalizeAccount, normalizeTransaction, transactionId } from './normalize.js';
+export { normalizeAccount, normalizeRawRecord } from './normalize.js';
 export { withRetry } from './retry.js';
 export type { RetryOptions } from './retry.js';
 

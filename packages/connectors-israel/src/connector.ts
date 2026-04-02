@@ -1,4 +1,4 @@
-import type { Transaction, Account } from '@pocket/core-model';
+import type { Account, RawImportRecord } from '@pocket/core-model';
 
 export type InstitutionType = 'bank' | 'card';
 
@@ -21,7 +21,14 @@ export interface ImportOptions {
 export interface ImportSuccess {
   status: 'success';
   accounts: Account[];
-  transactions: Transaction[];
+  /**
+   * Pre-canonical records ready for the normalization pipeline.
+   * Callers must pass these through `normalizeImport()` in @pocket/core-model
+   * before storing in the DB — raw records have no importBatchId yet.
+   */
+  rawRecords: RawImportRecord[];
+  /** Connector id — use as `providerUsed` when creating the ImportBatch. */
+  connectorId: string;
   durationMs: number;
 }
 
@@ -36,17 +43,12 @@ export interface ImportError {
 export type ImportResult = ImportSuccess | ImportError;
 
 /**
- * A Connector wraps one Israeli bank or card scraper and normalizes its output
- * to `@pocket/core-model` types. It is the only layer allowed to know about
- * the external scraper implementation.
+ * A Connector wraps one Israeli bank or card scraper and produces
+ * pre-canonical RawImportRecord[] ready for the normalization pipeline.
+ * It is the only layer allowed to know about the external scraper implementation.
  */
 export interface Connector {
   readonly descriptor: ConnectorDescriptor;
-  /**
-   * Runs the scraper with the given credentials and normalizes output.
-   * Credentials are passed in as a plain record; the connector must not log
-   * any credential values.
-   */
   run(
     credentials: Record<string, string>,
     options: ImportOptions,

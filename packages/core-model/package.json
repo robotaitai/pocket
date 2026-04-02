@@ -10,11 +10,13 @@
     }
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "test": "echo 'no tests yet' && exit 0",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
+    "test": "vitest run",
     "build": "tsc"
   },
   "devDependencies": {
-    "typescript": "~5.5.4"
+    "@types/node": "^20.17.30",
+    "typescript": "~5.5.4",
+    "vitest": "^3.1.1"
   }
 }

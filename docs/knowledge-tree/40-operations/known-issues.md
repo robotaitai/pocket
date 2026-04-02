@@ -55,3 +55,17 @@ Status: open
 Package: packages/connectors-israel
 Description: HapoalimConnector and MaxConnector load the scraper from external/israeli-bank-scrapers/lib/index.js at runtime. The scraper has no compiled lib/ directory (it is TypeScript source only). Running the real scrapers requires `cd external/israeli-bank-scrapers && npm run build` first. Tests use FixtureConnector and are not affected.
 Resolution: pending — add a CI step to build the scraper when integration tests are added.
+
+## 2026-04-02 — File-based importers not yet implemented
+
+Status: open
+Package: packages/core-model (normalization contract defined)
+Description: PDF, XLSX, and CSV importers must produce RawImportRecord[] with sourceType='pdf'/'xlsx'/'csv', the appropriate extractionMethod, and confidenceScore for OCR/agent paths. The normalization pipeline is ready to receive them, but no file import adapters exist yet.
+Resolution: pending — implement in a future step.
+
+## 2026-04-02 — raw_references table deferred
+
+Status: open
+Package: apps/desktop
+Description: RawImportRecord.rawReference is stored on the canonical Transaction for traceability, but a dedicated raw_references table (for storing full raw payloads) was deferred until file import is implemented.
+Resolution: pending.

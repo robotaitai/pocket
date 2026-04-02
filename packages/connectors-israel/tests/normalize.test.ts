@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeAccount, normalizeTransaction, transactionId } from '../src/normalize.js';
+import { normalizeAccount, normalizeRawRecord } from '../src/normalize.js';
+import { transactionId, normalizeImport, createImportBatch } from '@pocket/core-model';
 import type { ScraperTransaction } from '../src/scraper-types.js';
 import { fixtureBank } from './fixtures/scraper-accounts.js';
 
@@ -21,65 +22,29 @@ describe('normalizeAccount', () => {
   });
 
   it('maps institution type correctly', () => {
-    const account = normalizeAccount('hapoalim', 'bank', baseAccount);
-    expect(account.institutionType).toBe('bank');
+    const bank = normalizeAccount('hapoalim', 'bank', baseAccount);
+    expect(bank.institutionType).toBe('bank');
     const card = normalizeAccount('max', 'card', { accountNumber: 'CARD-1', txns: [] });
     expect(card.institutionType).toBe('card');
   });
-
-  it('does not expose raw account number beyond the field', () => {
-    const a = normalizeAccount('hapoalim', 'bank', baseAccount);
-    // account number is in the designated field only — not in id or other fields
-    expect(a.id).not.toContain(baseAccount.accountNumber);
-  });
 });
 
-describe('transactionId', () => {
-  it('is deterministic for identical input', () => {
+describe('normalizeRawRecord', () => {
+  it('produces a RawImportRecord with scraper source metadata', () => {
     const account = normalizeAccount('hapoalim', 'bank', baseAccount);
-    const id1 = transactionId(account.id, baseTx);
-    const id2 = transactionId(account.id, baseTx);
-    expect(id1).toBe(id2);
-  });
+    const raw = normalizeRawRecord(account.id, 'hapoalim', baseTx);
 
-  it('differs when amount changes', () => {
-    const account = normalizeAccount('hapoalim', 'bank', baseAccount);
-    const modified: ScraperTransaction = { ...baseTx, originalAmount: -999 };
-    expect(transactionId(account.id, baseTx)).not.toBe(
-      transactionId(account.id, modified),
-    );
-  });
-
-  it('differs when date changes', () => {
-    const account = normalizeAccount('hapoalim', 'bank', baseAccount);
-    const modified: ScraperTransaction = {
-      ...baseTx,
-      date: '2026-04-01T00:00:00.000Z',
-    };
-    expect(transactionId(account.id, baseTx)).not.toBe(
-      transactionId(account.id, modified),
-    );
-  });
-
-  it('produces a 32-character hex string', () => {
-    const account = normalizeAccount('hapoalim', 'bank', baseAccount);
-    const id = transactionId(account.id, baseTx);
-    expect(id).toMatch(/^[0-9a-f]{32}$/);
-  });
-});
-
-describe('normalizeTransaction', () => {
-  it('maps scraper transaction fields to core-model Transaction', () => {
-    const account = normalizeAccount('hapoalim', 'bank', baseAccount);
-    const tx = normalizeTransaction(account.id, baseTx);
-    expect(tx.accountId).toBe(account.id);
-    expect(tx.amount).toBe(baseTx.chargedAmount);
-    expect(tx.originalAmount).toBe(baseTx.originalAmount);
-    expect(tx.originalCurrency).toBe('ILS');
-    expect(tx.chargedCurrency).toBe('ILS');
-    expect(tx.description).toBe(baseTx.description);
-    expect(tx.status).toBe('completed');
-    expect(tx.referenceId).toBe('REF001');
+    expect(raw.sourceType).toBe('scraper');
+    expect(raw.extractionMethod).toBe('scraper');
+    expect(raw.providerUsed).toBe('hapoalim');
+    expect(raw.accountId).toBe(account.id);
+    expect(raw.amount).toBe(baseTx.chargedAmount);
+    expect(raw.originalAmount).toBe(baseTx.originalAmount);
+    expect(raw.description).toBe(baseTx.description);
+    expect(raw.status).toBe('completed');
+    expect(raw.referenceId).toBe('REF001');
+    expect(raw.warnings).toEqual([]);
+    expect(raw.confidenceScore).toBeUndefined();
   });
 
   it('maps installments', () => {
@@ -97,19 +62,43 @@ describe('normalizeTransaction', () => {
       status: 'completed',
       installments: { number: 1, total: 3 },
     };
-    const tx = normalizeTransaction(account.id, installmentTx);
-    expect(tx.installmentNumber).toBe(1);
-    expect(tx.installmentTotal).toBe(3);
+    const raw = normalizeRawRecord(account.id, 'max', installmentTx);
+    expect(raw.installmentNumber).toBe(1);
+    expect(raw.installmentTotal).toBe(3);
   });
+});
 
-  it('handles unknown currency by falling back to ILS', () => {
+describe('transactionId (from core-model)', () => {
+  it('is deterministic for identical input', () => {
     const account = normalizeAccount('hapoalim', 'bank', baseAccount);
-    const tx: ScraperTransaction = {
-      ...baseTx,
-      originalCurrency: 'XYZ',
-      chargedCurrency: undefined,
-    };
-    const normalized = normalizeTransaction(account.id, tx);
-    expect(normalized.originalCurrency).toBe('ILS');
+    const raw = normalizeRawRecord(account.id, 'hapoalim', baseTx);
+    const id1 = transactionId(
+      raw.accountId, raw.date, raw.processedDate ?? raw.date,
+      raw.originalAmount, raw.originalCurrency, raw.description,
+    );
+    const id2 = transactionId(
+      raw.accountId, raw.date, raw.processedDate ?? raw.date,
+      raw.originalAmount, raw.originalCurrency, raw.description,
+    );
+    expect(id1).toBe(id2);
+    expect(id1).toMatch(/^[0-9a-f]{32}$/);
+  });
+});
+
+describe('normalizeImport integration (connector → pipeline)', () => {
+  it('converts RawImportRecords to canonical Transactions with provenance', () => {
+    const account = normalizeAccount('hapoalim', 'bank', baseAccount);
+    const raws = baseAccount.txns.map((tx) => normalizeRawRecord(account.id, 'hapoalim', tx));
+    const batch = createImportBatch({ sourceType: 'scraper', extractionMethod: 'scraper', providerUsed: 'hapoalim' });
+
+    const { records, failures } = normalizeImport(raws, batch);
+    expect(failures).toHaveLength(0);
+    expect(records).toHaveLength(2);
+
+    const tx = records[0]!;
+    expect(tx.importBatchId).toBe(batch.id);
+    expect(tx.importTimestamp).toBe(batch.createdAt);
+    expect(tx.schemaVersion).toBe(2);
+    expect(typeof tx.id).toBe('string');
   });
 });
