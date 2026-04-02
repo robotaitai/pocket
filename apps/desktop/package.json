@@ -4,6 +4,8 @@
   "private": true,
   "main": "dist/main/index.js",
   "scripts": {
+    "rebuild": "electron-rebuild",
+    "postinstall": "electron-rebuild",
     "dev": "concurrently \"vite --config vite.renderer.config.ts\" \"tsc --build tsconfig.json --watch\"",
     "build": "tsc --build tsconfig.json && vite build --config vite.renderer.config.ts",
     "build:release": "pnpm build && electron-builder --config electron-builder.yml",
@@ -26,6 +28,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.0.3",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",

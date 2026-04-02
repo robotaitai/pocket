@@ -13,6 +13,7 @@ git clone git@github.com:robotaitai/pocket.git
 cd pocket
 git submodule update --init --recursive
 pnpm install
+pnpm build:scrapers
 pnpm typecheck
 pnpm test
 ```
