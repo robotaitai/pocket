@@ -1,286 +1,418 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { FileImportResult, ConnectorDescriptor, ConnectorRunResult } from '../pocket.js';
 
-type ImportState = 'idle' | 'extracting' | 'done' | 'error';
 type ConnectorRunState = 'idle' | 'running' | 'done' | 'error';
 
-export function Import(): React.ReactElement {
-  const [state, setState] = useState<ImportState>('idle');
-  const [result, setResult] = useState<FileImportResult | null>(null);
-  const [onReviewClick, setOnReviewClick] = useState<(() => void) | null>(null);
+interface ConnectorStatus {
+  credentialsSet: boolean;
+  lastRun?: ConnectorRunState;
+  lastResult?: ConnectorRunResult;
+}
 
-  // Scraper connectors
+export function Import(): React.ReactElement {
   const [connectors, setConnectors] = useState<ConnectorDescriptor[]>([]);
+  const [status, setStatus] = useState<Record<string, ConnectorStatus>>({});
   const [runState, setRunState] = useState<Record<string, ConnectorRunState>>({});
   const [runResults, setRunResults] = useState<Record<string, ConnectorRunResult>>({});
-  const [lookbackDays, setLookbackDays] = useState<number>(365);
+
+  const [fileState, setFileState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
+  const [fileResult, setFileResult] = useState<FileImportResult | null>(null);
+  const [log, setLog] = useState<Array<{ text: string; type: 'info' | 'ok' | 'err' | 'warn' }>>([]);
+  const logRef = useRef<HTMLDivElement>(null);
+
+  const appendLog = (text: string, type: 'info' | 'ok' | 'err' | 'warn' = 'info') => {
+    setLog((prev) => [...prev, { text, type }]);
+    setTimeout(() => { logRef.current?.scrollTo({ top: 9999, behavior: 'smooth' }); }, 30);
+  };
 
   const loadConnectors = useCallback(async () => {
     const list = await window.pocket.credentials.listConnectors();
     setConnectors(list);
+
+    const statuses: Record<string, ConnectorStatus> = {};
+    for (const conn of list) {
+      const checks = await Promise.all(
+        conn.credentialFields.map((f) => window.pocket.credentials.getFieldStatus(conn.id, f)),
+      );
+      statuses[conn.id] = { credentialsSet: checks.every((c) => c.set) };
+    }
+    setStatus(statuses);
   }, []);
 
-  useEffect(() => {
-    void loadConnectors();
-    void window.pocket.settings.get('import_lookback_days').then((v) => {
-      if (v) setLookbackDays(parseInt(v, 10));
-    });
-  }, [loadConnectors]);
+  useEffect(() => { void loadConnectors(); }, [loadConnectors]);
 
-  const handleRunConnector = async (connectorId: string) => {
-    setRunState((s) => ({ ...s, [connectorId]: 'running' }));
-    setRunResults((r) => { const n = { ...r }; delete n[connectorId]; return n; });
-    const res = await window.pocket.connector.run(connectorId);
-    setRunResults((r) => ({ ...r, [connectorId]: res }));
-    setRunState((s) => ({ ...s, [connectorId]: res.error ? 'error' : 'done' }));
+  const handleRun = async (conn: ConnectorDescriptor) => {
+    if (runState[conn.id] === 'running') return;
+    setRunState((s) => ({ ...s, [conn.id]: 'running' }));
+    setRunResults((r) => { const n = { ...r }; delete n[conn.id]; return n; });
+
+    const res = await window.pocket.connector.run(conn.id);
+    setRunResults((r) => ({ ...r, [conn.id]: res }));
+    setRunState((s) => ({ ...s, [conn.id]: res.error ? 'error' : 'done' }));
   };
 
-  const handleImport = async () => {
-    setState('extracting');
-    setResult(null);
+  const handleFileImport = async () => {
+    if (fileState === 'running') return;
+    setFileState('running');
+    setFileResult(null);
+    setLog([]);
+    appendLog('Opening file picker...');
 
     const res = await window.pocket.fileImport.pickAndExtract();
-    setResult(res);
+    setFileResult(res);
 
     if (res.canceled) {
-      setState('idle');
-    } else if (res.error) {
-      setState('error');
-    } else {
-      setState('done');
+      setFileState('idle');
+      setLog([]);
+      return;
     }
+
+    if (res.error) {
+      appendLog(res.error, 'err');
+      setFileState('error');
+      return;
+    }
+
+    if (res.fileResults && res.fileResults.length > 1) {
+      appendLog(`Processing ${res.fileResults.length} files...`, 'info');
+      for (const fr of res.fileResults) {
+        if (fr.error) {
+          appendLog(`${fr.file}: ${fr.error}`, 'err');
+        } else {
+          appendLog(`${fr.file}: ${fr.inserted} new, ${fr.duplicates} dupes`, fr.inserted > 0 ? 'ok' : 'warn');
+        }
+      }
+    }
+
+    const total = res.inserted ?? 0;
+    const dupes = res.duplicates ?? 0;
+    const errs = res.errors?.length ?? 0;
+
+    if (total > 0) appendLog(`Total: ${total} new transaction${total === 1 ? '' : 's'} pending review`, 'ok');
+    if (dupes > 0) appendLog(`${dupes} duplicate${dupes === 1 ? '' : 's'} skipped`, 'warn');
+    if (errs > 0) appendLog(`${errs} error${errs === 1 ? '' : 's'} — check details below`, 'err');
+    if (total === 0 && errs === 0) appendLog('No new transactions found.', 'warn');
+
+    setFileState('done');
   };
 
-  return (
-    <div style={{ maxWidth: 700, margin: '0 auto', padding: '28px 24px', fontFamily: 'system-ui, sans-serif' }}>
-      <h1 style={{ margin: '0 0 8px', fontSize: 22, fontWeight: 700 }}>Import</h1>
-      <p style={{ margin: '0 0 28px', fontSize: 14, color: '#6b7280' }}>
-        Import financial data from CSV, Excel, or PDF files. Imported records enter the Review queue and require approval before they affect your data.
-      </p>
+  const hasAnyConnector = connectors.length > 0;
 
-      {/* Bank / card scraper import */}
-      {connectors.length > 0 && (
-        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e5e7eb', padding: 20, marginBottom: 28 }}>
-          <h2 style={{ margin: '0 0 4px', fontSize: 14, fontWeight: 700, color: '#374151' }}>Bank and Card Import</h2>
-          <p style={{ margin: '0 0 4px', fontSize: 13, color: '#6b7280' }}>
-            Import directly from your bank or card provider. Credentials must be set in Settings first.
-            All records go to Review before being accepted.
-          </p>
-          <div style={{ margin: '0 0 16px', padding: '8px 12px', background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 8, fontSize: 12, color: '#92400e' }}>
-            Bank account scrapers are limited to the last ~3 months by the bank API, regardless of the lookback setting.
-            For older data, download a PDF or CSV from your bank website and import it below.
-            Credit card statements (e.g. Leumi Visa / Mastercard) must be imported as PDFs from the bank credit card portal.
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: hasAnyConnector ? '340px 1fr' : '1fr', gap: 0, height: '100%', overflow: 'hidden' }}>
+
+      {/* ── LEFT: Data sources ── */}
+      {hasAnyConnector && (
+        <div style={{
+          borderRight: '1px solid #1f2937',
+          background: '#111827',
+          overflowY: 'auto',
+          padding: '24px 20px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 0,
+        }}>
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#4b5563', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 4 }}>
+              Live Connectors
+            </div>
+            <div style={{ fontSize: 12, color: '#6b7280' }}>
+              Pull directly from bank and card APIs. Credentials required.
+            </div>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
             {connectors.map((conn) => {
               const st = runState[conn.id] ?? 'idle';
               const res = runResults[conn.id];
+              const creds = status[conn.id];
+              const credOk = creds?.credentialsSet ?? false;
+
               return (
-                <div key={conn.id} style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                  <div style={{ minWidth: 140 }}>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: '#111827' }}>{conn.name}</div>
-                    <div style={{ fontSize: 11, color: '#9ca3af' }}>{conn.institutionType}</div>
-                  </div>
-                  <button
-                    onClick={() => void handleRunConnector(conn.id)}
-                    disabled={st === 'running'}
-                    style={{
-                      padding: '7px 18px',
-                      background: st === 'running' ? '#6b7280' : '#1d4ed8',
-                      color: '#fff', border: 'none', borderRadius: 8,
-                      cursor: st === 'running' ? 'default' : 'pointer',
-                      fontSize: 13, fontWeight: 600,
-                    }}
-                  >
-                    {st === 'running' ? 'Importing...' : 'Import now'}
-                  </button>
-                  {st === 'done' && res && !res.error && (
-                    <span style={{ fontSize: 13, color: '#065f46' }}>
-                      {res.inserted} new transactions ({res.duplicates} duplicates skipped) — go to Review to accept
-                    </span>
-                  )}
-                  {(st === 'error' || res?.error) && (
-                    <span style={{ fontSize: 13, color: '#7f1d1d' }}>{res?.error ?? 'Import failed'}</span>
-                  )}
-                  {res?.errors && res.errors.length > 0 && (
-                    <span style={{ fontSize: 11, color: '#92400e' }}>{res.errors.length} row errors</span>
-                  )}
-                </div>
+                <ConnectorRow
+                  key={conn.id}
+                  conn={conn}
+                  state={st}
+                  result={res}
+                  credentialsSet={credOk}
+                  onRun={() => void handleRun(conn)}
+                />
               );
             })}
           </div>
+
+          {/* API limit notice */}
+          <div style={{
+            marginTop: 'auto',
+            background: '#1f2937',
+            border: '1px solid #374151',
+            borderRadius: 8,
+            padding: '10px 12px',
+            fontSize: 11,
+            color: '#6b7280',
+            lineHeight: 1.6,
+          }}>
+            <span style={{ color: '#f59e0b', fontWeight: 700 }}>NOTE</span>
+            {' '}Bank APIs return at most ~3 months. For older history, export PDF/CSV from your bank portal and import below.
+          </div>
         </div>
       )}
 
-      {/* Credit card PDF guide */}
-      <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 12, padding: '14px 18px', marginBottom: 20 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: '#1e40af', marginBottom: 6 }}>How to import Leumi credit card statements</div>
-        <ol style={{ margin: 0, paddingLeft: 20, fontSize: 13, color: '#374151', lineHeight: 1.8 }}>
-          <li>Go to <strong>hb2.bankleumi.co.il</strong> and sign in</li>
-          <li>Navigate to <strong>כרטיסי אשראי</strong> (Credit Cards)</li>
-          <li>Select your card (Visa 4411 or Mastercard 9414)</li>
-          <li>Choose a billing period and click <strong>יצוא לקובץ</strong> (Export) → PDF</li>
-          <li>Come back here and click <strong>Choose File to Import</strong> below — Gemini will extract the transactions</li>
-        </ol>
-      </div>
+      {/* ── RIGHT: File import ── */}
+      <div style={{
+        background: '#0f172a',
+        overflowY: 'auto',
+        padding: '24px 28px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 20,
+      }}>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#4b5563', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 4 }}>
+            File Import
+          </div>
+          <div style={{ fontSize: 12, color: '#6b7280' }}>
+            CSV · XLSX · PDF — all formats accepted. PDF requires a connected AI provider.
+          </div>
+        </div>
 
-      {/* Format guide */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 28 }}>
-        <FormatCard
-          title="CSV"
-          description="Structured exports from your bank's website. Parsed locally — no provider required."
-          supported={true}
-          requiresProvider={false}
-        />
-        <FormatCard
-          title="Excel (XLSX)"
-          description="Spreadsheet exports. Converted to CSV internally — no provider required."
-          supported={true}
-          requiresProvider={false}
-        />
-        <FormatCard
-          title="PDF"
-          description="Bank statement PDFs. Requires a connected provider (OpenAI, Claude, or Gemini) in Settings."
-          supported={true}
-          requiresProvider={true}
-        />
-      </div>
-
-      {/* Import button */}
-      <div style={{ textAlign: 'center', marginBottom: 28 }}>
+        {/* Drop zone / import button */}
         <button
-          onClick={() => void handleImport()}
-          disabled={state === 'extracting'}
+          onClick={() => void handleFileImport()}
+          disabled={fileState === 'running'}
           style={{
-            padding: '12px 32px',
-            background: state === 'extracting' ? '#6b7280' : '#1d4ed8',
-            color: '#fff',
-            border: 'none',
-            borderRadius: 10,
-            fontSize: 15,
-            fontWeight: 700,
-            cursor: state === 'extracting' ? 'default' : 'pointer',
+            background: fileState === 'running' ? '#1e293b' : '#1e293b',
+            border: `2px dashed ${fileState === 'running' ? '#374151' : '#3b82f6'}`,
+            borderRadius: 12,
+            padding: '36px 20px',
+            cursor: fileState === 'running' ? 'default' : 'pointer',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 10,
+            transition: 'border-color 0.15s',
           }}
+          onMouseEnter={(e) => { if (fileState !== 'running') (e.currentTarget as HTMLButtonElement).style.borderColor = '#60a5fa'; }}
+          onMouseLeave={(e) => { if (fileState !== 'running') (e.currentTarget as HTMLButtonElement).style.borderColor = '#3b82f6'; }}
         >
-          {state === 'extracting' ? 'Extracting...' : 'Choose Files to Import'}
+          <div style={{ fontSize: 28, color: '#3b82f6' }}>{fileState === 'running' ? '⟳' : '+'}</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: fileState === 'running' ? '#4b5563' : '#e2e8f0' }}>
+            {fileState === 'running' ? 'Processing...' : 'Choose files to import'}
+          </div>
+          <div style={{ fontSize: 12, color: '#475569' }}>
+            CSV · XLSX · PDF &nbsp;·&nbsp; multiple files OK
+          </div>
         </button>
-        <p style={{ marginTop: 8, fontSize: 12, color: '#9ca3af' }}>
-          {state === 'extracting'
-            ? 'Reading files and extracting transactions — PDFs may take a moment each.'
-            : 'You can select multiple files at once (CSV, Excel, PDF).'}
-        </p>
-      </div>
 
-      {/* Result */}
-      {state === 'error' && result?.error && (
-        <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 10, padding: '16px 20px' }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: '#7f1d1d', marginBottom: 6 }}>Import failed</div>
-          <div style={{ fontSize: 13, color: '#374151' }}>{result.error}</div>
-          {result.error.includes('provider') && (
-            <div style={{ marginTop: 10, fontSize: 12, color: '#6b7280' }}>
-              Go to Settings to configure a connected provider for PDF import.
-            </div>
-          )}
-          <button
-            onClick={() => setState('idle')}
-            style={{ marginTop: 12, padding: '6px 14px', border: '1px solid #fca5a5', background: '#fff', color: '#7f1d1d', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}
+        {/* Live log terminal */}
+        {(log.length > 0 || fileState === 'running') && (
+          <div
+            ref={logRef}
+            style={{
+              background: '#0a0f1a',
+              border: '1px solid #1e293b',
+              borderRadius: 8,
+              padding: '12px 14px',
+              fontFamily: '"SF Mono", "Fira Code", "Menlo", monospace',
+              fontSize: 12,
+              lineHeight: 1.8,
+              maxHeight: 180,
+              overflowY: 'auto',
+            }}
           >
-            Try again
-          </button>
+            {fileState === 'running' && log.length === 0 && (
+              <span style={{ color: '#3b82f6' }}>$ extracting...</span>
+            )}
+            {log.map((entry, i) => (
+              <div key={i} style={{ color: entry.type === 'ok' ? '#34d399' : entry.type === 'err' ? '#f87171' : entry.type === 'warn' ? '#fbbf24' : '#94a3b8' }}>
+                <span style={{ color: '#334155', marginRight: 8 }}>{String(i + 1).padStart(2, ' ')} |</span>
+                {entry.text}
+              </div>
+            ))}
+            {fileState === 'running' && log.length > 0 && (
+              <span style={{ color: '#3b82f6' }}>_</span>
+            )}
+          </div>
+        )}
+
+        {/* Errors detail */}
+        {fileState === 'done' && fileResult?.errors && fileResult.errors.length > 0 && (
+          <div style={{
+            background: '#1c0a0a',
+            border: '1px solid #7f1d1d',
+            borderRadius: 8,
+            padding: '10px 14px',
+          }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#f87171', marginBottom: 6, letterSpacing: '0.08em' }}>ERRORS</div>
+            {fileResult.errors.slice(0, 6).map((e, i) => (
+              <div key={i} style={{ fontSize: 11, color: '#fca5a5', fontFamily: 'monospace', marginBottom: 2 }}>{e}</div>
+            ))}
+            {fileResult.errors.length > 6 && (
+              <div style={{ fontSize: 11, color: '#6b7280' }}>...and {fileResult.errors.length - 6} more</div>
+            )}
+          </div>
+        )}
+
+        {/* Go to review CTA */}
+        {fileState === 'done' && (fileResult?.inserted ?? 0) > 0 && (
+          <div style={{
+            background: '#052e16',
+            border: '1px solid #166534',
+            borderRadius: 8,
+            padding: '12px 16px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+          }}>
+            <div style={{ fontSize: 20, color: '#4ade80' }}>✓</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#4ade80' }}>
+                {fileResult?.inserted} new transaction{fileResult?.inserted === 1 ? '' : 's'} pending review
+              </div>
+              <div style={{ fontSize: 11, color: '#166534', marginTop: 2 }}>
+                Go to Review tab to accept or reject.
+              </div>
+            </div>
+            <button
+              onClick={() => { setFileState('idle'); setLog([]); }}
+              style={{ fontSize: 11, color: '#166534', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
+            >
+              import more
+            </button>
+          </div>
+        )}
+
+        {/* Guide */}
+        <GuideSection />
+
+        {/* Privacy */}
+        <div style={{ fontSize: 11, color: '#334155', lineHeight: 1.6 }}>
+          CSV/XLSX processed locally — no data leaves your device.
+          PDF text is sent to your configured AI provider (not raw bytes, not account metadata).
         </div>
-      )}
-
-      {state === 'done' && result && !result.error && (
-        <div style={{ background: '#d1fae5', border: '1px solid #6ee7b7', borderRadius: 10, padding: '16px 20px' }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: '#065f46', marginBottom: 10 }}>
-            Import complete{(result.fileCount ?? 1) > 1 ? ` — ${result.fileCount} files` : ''}
-          </div>
-          <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginBottom: 12 }}>
-            <StatBadge label="New transactions" value={result.inserted ?? 0} color="#065f46" />
-            {(result.duplicates ?? 0) > 0 && <StatBadge label="Duplicates skipped" value={result.duplicates ?? 0} color="#92400e" />}
-            {(result.errors?.length ?? 0) > 0 && <StatBadge label="Errors" value={result.errors?.length ?? 0} color="#7f1d1d" />}
-          </div>
-
-          {result.fileResults && result.fileResults.length > 1 && (
-            <div style={{ marginBottom: 12 }}>
-              {result.fileResults.map((fr) => (
-                <div key={fr.file} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: '1px solid #a7f3d0', fontSize: 13 }}>
-                  <span style={{ flex: 1, color: '#065f46', fontWeight: 500 }}>{fr.file}</span>
-                  {fr.error
-                    ? <span style={{ color: '#7f1d1d' }}>{fr.error}</span>
-                    : <>
-                        <span style={{ color: '#065f46' }}>{fr.inserted} new</span>
-                        {fr.duplicates > 0 && <span style={{ color: '#92400e' }}>{fr.duplicates} dupes</span>}
-                      </>
-                  }
-                </div>
-              ))}
-            </div>
-          )}
-
-          {result.documentWarnings && result.documentWarnings.length > 0 && (
-            <div style={{ background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 6, padding: '8px 12px', marginBottom: 10 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#92400e', marginBottom: 4 }}>Document warnings</div>
-              {result.documentWarnings.map((w) => <div key={w} style={{ fontSize: 12, color: '#374151' }}>{w}</div>)}
-            </div>
-          )}
-
-          {result.errors && result.errors.length > 0 && (
-            <div style={{ background: '#fee2e2', borderRadius: 6, padding: '8px 12px', marginBottom: 10 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#7f1d1d', marginBottom: 4 }}>Row errors</div>
-              {result.errors.slice(0, 5).map((e) => <div key={e} style={{ fontSize: 12, color: '#374151' }}>{e}</div>)}
-              {result.errors.length > 5 && <div style={{ fontSize: 12, color: '#9ca3af' }}>...and {result.errors.length - 5} more</div>}
-            </div>
-          )}
-
-          <div style={{ fontSize: 13, color: '#065f46' }}>
-            All imported records are pending review. Go to the <strong>Review</strong> tab to accept or reject them.
-          </div>
-
-          <button
-            onClick={() => setState('idle')}
-            style={{ marginTop: 12, padding: '6px 14px', border: '1px solid #6ee7b7', background: '#fff', color: '#065f46', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}
-          >
-            Import another file
-          </button>
-        </div>
-      )}
-
-      {/* Privacy note */}
-      <div style={{ marginTop: 32, padding: '12px 16px', background: '#f3f4f6', borderRadius: 8, fontSize: 12, color: '#6b7280' }}>
-        <strong>Privacy:</strong> Files are processed locally. For CSV and XLSX, no data leaves your device.
-        For PDF files, only the extracted text content (not account metadata) is sent to your configured provider.
       </div>
     </div>
   );
 }
 
-function FormatCard({ title, description, supported, requiresProvider }: {
-  title: string; description: string; supported: boolean; requiresProvider: boolean;
+// ── Connector row ──────────────────────────────────────────────────────────────
+
+function ConnectorRow({
+  conn, state, result, credentialsSet, onRun,
+}: {
+  conn: ConnectorDescriptor;
+  state: ConnectorRunState;
+  result?: ConnectorRunResult;
+  credentialsSet: boolean;
+  onRun: () => void;
 }) {
+  const dot = state === 'running' ? '#f59e0b'
+    : state === 'done' && !result?.error ? '#4ade80'
+    : state === 'error' || result?.error ? '#f87171'
+    : credentialsSet ? '#6b7280'
+    : '#374151';
+
+  const dotLabel = state === 'running' ? 'importing'
+    : state === 'done' && !result?.error ? 'done'
+    : state === 'error' || result?.error ? 'error'
+    : credentialsSet ? 'ready'
+    : 'no credentials';
+
   return (
     <div style={{
-      background: '#fff', borderRadius: 10, padding: '14px 16px',
-      border: '1px solid #e5e7eb', boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+      background: '#1f2937',
+      border: '1px solid #374151',
+      borderRadius: 8,
+      padding: '10px 12px',
+      display: 'flex',
+      alignItems: 'center',
+      gap: 10,
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-        <span style={{ fontSize: 15, fontWeight: 700, color: '#111827' }}>{title}</span>
-        {requiresProvider && (
-          <span style={{ fontSize: 10, fontWeight: 700, color: '#92400e', background: '#fef3c7', padding: '1px 6px', borderRadius: 8 }}>
-            Needs provider
-          </span>
-        )}
+      {/* Status dot */}
+      <div style={{
+        width: 8, height: 8, borderRadius: '50%',
+        background: dot,
+        flexShrink: 0,
+        boxShadow: state === 'running' ? `0 0 6px ${dot}` : (state === 'done' && !result?.error ? `0 0 4px ${dot}` : 'none'),
+      }} title={dotLabel} />
+
+      {/* Labels */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {conn.name}
+        </div>
+        <div style={{ fontSize: 10, color: '#4b5563', marginTop: 1 }}>
+          {conn.institutionType}
+          {state === 'done' && result && !result.error && (
+            <span style={{ color: '#4ade80', marginLeft: 8 }}>
+              +{result.inserted ?? 0} new
+              {(result.duplicates ?? 0) > 0 ? `, ${result.duplicates} dupes` : ''}
+            </span>
+          )}
+          {(state === 'error' || result?.error) && (
+            <span style={{ color: '#f87171', marginLeft: 8 }} title={result?.error}>
+              {result?.error?.slice(0, 40) ?? 'error'}
+            </span>
+          )}
+        </div>
       </div>
-      <div style={{ fontSize: 12, color: '#6b7280', lineHeight: 1.5 }}>{description}</div>
+
+      {/* Run button */}
+      <button
+        onClick={onRun}
+        disabled={state === 'running' || !credentialsSet}
+        title={!credentialsSet ? 'Set credentials in Settings first' : undefined}
+        style={{
+          padding: '4px 12px',
+          fontSize: 11,
+          fontWeight: 700,
+          borderRadius: 5,
+          border: 'none',
+          cursor: (state === 'running' || !credentialsSet) ? 'default' : 'pointer',
+          background: state === 'running' ? '#374151'
+            : !credentialsSet ? '#1f2937'
+            : state === 'done' ? '#14532d'
+            : '#1d4ed8',
+          color: state === 'running' ? '#6b7280'
+            : !credentialsSet ? '#374151'
+            : '#fff',
+          letterSpacing: '0.04em',
+          flexShrink: 0,
+        }}
+      >
+        {state === 'running' ? '...' : state === 'done' ? 'sync' : 'run'}
+      </button>
     </div>
   );
 }
 
-function StatBadge({ label, value, color }: { label: string; value: number; color: string }) {
+// ── Guide ──────────────────────────────────────────────────────────────────────
+
+function GuideSection() {
+  const [open, setOpen] = useState(false);
   return (
-    <div>
-      <div style={{ fontSize: 24, fontWeight: 800, color }}>{value}</div>
-      <div style={{ fontSize: 11, color: '#6b7280' }}>{label}</div>
+    <div style={{ border: '1px solid #1e293b', borderRadius: 8, overflow: 'hidden' }}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        style={{
+          width: '100%', textAlign: 'left', background: '#1e293b', border: 'none',
+          padding: '10px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
+        }}
+      >
+        <span style={{ fontSize: 11, color: '#3b82f6', fontWeight: 700, fontFamily: 'monospace' }}>{open ? '▼' : '▶'}</span>
+        <span style={{ fontSize: 12, fontWeight: 600, color: '#94a3b8' }}>How to export statements from Leumi credit card portal</span>
+      </button>
+      {open && (
+        <div style={{ background: '#0f172a', padding: '12px 16px' }}>
+          <ol style={{ margin: 0, paddingLeft: 20, fontSize: 12, color: '#64748b', lineHeight: 2 }}>
+            <li>Go to <span style={{ color: '#60a5fa', fontFamily: 'monospace' }}>hb2.bankleumi.co.il</span> and sign in</li>
+            <li>Navigate to <span style={{ color: '#e2e8f0' }}>כרטיסי אשראי</span> (Credit Cards)</li>
+            <li>Select your card (Visa 4411 or Mastercard 9414)</li>
+            <li>Choose a billing period → click <span style={{ color: '#e2e8f0' }}>יצוא לקובץ</span> → PDF</li>
+            <li>Import the PDF here — Gemini reads it natively</li>
+          </ol>
+        </div>
+      )}
     </div>
   );
 }
