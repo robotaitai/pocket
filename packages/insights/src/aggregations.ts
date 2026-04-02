@@ -15,6 +15,11 @@ export function summarizePeriod(
   let hasLowConfidence = false;
 
   for (const t of transactions) {
+    // Credit card payment transactions are transfers from a bank account to a card company.
+    // Excluding them prevents double-counting: the individual card charges are tracked
+    // via the card connector; counting the settlement debit too would inflate expenses.
+    if (t.category === 'credit_card_payment') continue;
+
     if (t.amount > 0) {
       income += t.amount;
     } else {

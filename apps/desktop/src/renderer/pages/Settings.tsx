@@ -23,6 +23,10 @@ export function Settings(): React.ReactElement {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
+  // Import settings
+  const [lookbackDays, setLookbackDays] = useState<string>('365');
+  const [lookbackSaved, setLookbackSaved] = useState(false);
+
   // Bank credentials state
   const [connectors, setConnectors] = useState<ConnectorDescriptor[]>([]);
   const [credValues, setCredValues] = useState<Record<string, string>>({}); // connectorId:field → value
@@ -55,6 +59,9 @@ export function Settings(): React.ReactElement {
   useEffect(() => {
     void loadConfig();
     void loadConnectors();
+    void window.pocket.settings.get('import_lookback_days').then((v) => {
+      if (v) setLookbackDays(v);
+    });
   }, [loadConfig, loadConnectors]);
 
   const handleModeChange = async (mode: 'local' | 'connected') => {
@@ -118,6 +125,14 @@ export function Settings(): React.ReactElement {
     const result = await window.pocket.credentials.testConnection(connectorId);
     setConnTestResults((r) => ({ ...r, [connectorId]: result }));
     setConnTestLoading((l) => ({ ...l, [connectorId]: false }));
+  };
+
+  const handleLookbackSave = async () => {
+    const days = parseInt(lookbackDays, 10);
+    if (isNaN(days) || days < 1 || days > 1825) return;
+    await window.pocket.settings.set('import_lookback_days', String(days));
+    setLookbackSaved(true);
+    setTimeout(() => setLookbackSaved(false), 3000);
   };
 
   const handleToggle = async (field: 'chatEnhancementEnabled' | 'merchantSuggestionsEnabled') => {
@@ -335,6 +350,40 @@ export function Settings(): React.ReactElement {
             </div>
           );
         })}
+      </Section>
+
+      {/* Import settings */}
+      <Section title="Import Settings">
+        <div style={{ marginBottom: 8 }}>
+          <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>
+            Import lookback period (days)
+          </label>
+          <p style={{ margin: '0 0 10px', fontSize: 12, color: '#6b7280' }}>
+            How far back to import transactions when running a bank or card connector. Default is 365 days (1 year). Maximum is 1825 days (5 years).
+          </p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <input
+              type="number"
+              min={1}
+              max={1825}
+              value={lookbackDays}
+              onChange={(e) => setLookbackDays(e.target.value)}
+              style={{
+                width: 100, padding: '7px 10px', border: '1px solid #d1d5db',
+                borderRadius: 8, fontSize: 14,
+              }}
+            />
+            <button
+              onClick={() => void handleLookbackSave()}
+              style={{
+                padding: '7px 18px', background: '#1d4ed8', color: '#fff',
+                border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600,
+              }}
+            >
+              {lookbackSaved ? 'Saved' : 'Save'}
+            </button>
+          </div>
+        </div>
       </Section>
 
       {/* Privacy section */}

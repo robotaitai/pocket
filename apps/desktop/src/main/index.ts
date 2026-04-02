@@ -7,7 +7,7 @@ import { getProviderConfig, setProviderConfig } from './db/providers.js';
 import { POCKET_SERVICE, providerKeyAccount, connectorCredentialAccount } from './secrets/keys.js';
 import { createProvider } from '@pocket/agent-client';
 import type { ProviderConfig, ProviderType } from '@pocket/agent-client';
-import { HapoalimConnector, LeumiConnector, MaxConnector, VisaCalConnector } from '@pocket/connectors-israel';
+import { HapoalimConnector, LeumiConnector, MaxConnector, VisaCalConnector, IsracardConnector, AmexConnector } from '@pocket/connectors-israel';
 import { extractFile, ingestExtractedRecords } from './file-extractor.js';
 import {
   getBatchSummaries,
@@ -189,7 +189,14 @@ async function createWindow(): Promise<void> {
 
   // Connector credential management
   // Credentials are stored per connector per field: pocket:connector:<id>:<field>
-  const CONNECTORS = [new HapoalimConnector(), new LeumiConnector(), new MaxConnector(), new VisaCalConnector()];
+  const CONNECTORS = [
+    new HapoalimConnector(),
+    new LeumiConnector(),
+    new MaxConnector(),
+    new VisaCalConnector(),
+    new IsracardConnector(),
+    new AmexConnector(),
+  ];
 
   ipcMain.handle('credentials:listConnectors', () =>
     CONNECTORS.map((c) => c.descriptor),
@@ -250,7 +257,8 @@ async function createWindow(): Promise<void> {
       creds[field] = val;
     }
 
-    const start = startDate ? new Date(startDate) : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+    const lookbackDays = parseInt(getSetting(db, 'import_lookback_days') ?? '365', 10);
+    const start = startDate ? new Date(startDate) : new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000);
 
     let result;
     try {

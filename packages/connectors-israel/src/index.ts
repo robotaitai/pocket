@@ -16,4 +16,6 @@ export { HapoalimConnector } from './adapters/hapoalim.js';
 export { LeumiConnector } from './adapters/leumi.js';
 export { MaxConnector } from './adapters/max.js';
 export { VisaCalConnector } from './adapters/visa-cal.js';
+export { IsracardConnector } from './adapters/isracard.js';
+export { AmexConnector } from './adapters/amex.js';
 export { FixtureConnector } from './adapters/fixture.js';

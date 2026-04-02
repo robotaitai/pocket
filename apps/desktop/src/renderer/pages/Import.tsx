@@ -13,13 +13,19 @@ export function Import(): React.ReactElement {
   const [connectors, setConnectors] = useState<ConnectorDescriptor[]>([]);
   const [runState, setRunState] = useState<Record<string, ConnectorRunState>>({});
   const [runResults, setRunResults] = useState<Record<string, ConnectorRunResult>>({});
+  const [lookbackDays, setLookbackDays] = useState<number>(365);
 
   const loadConnectors = useCallback(async () => {
     const list = await window.pocket.credentials.listConnectors();
     setConnectors(list);
   }, []);
 
-  useEffect(() => { void loadConnectors(); }, [loadConnectors]);
+  useEffect(() => {
+    void loadConnectors();
+    void window.pocket.settings.get('import_lookback_days').then((v) => {
+      if (v) setLookbackDays(parseInt(v, 10));
+    });
+  }, [loadConnectors]);
 
   const handleRunConnector = async (connectorId: string) => {
     setRunState((s) => ({ ...s, [connectorId]: 'running' }));
@@ -58,7 +64,7 @@ export function Import(): React.ReactElement {
           <h2 style={{ margin: '0 0 4px', fontSize: 14, fontWeight: 700, color: '#374151' }}>Bank and Card Import</h2>
           <p style={{ margin: '0 0 16px', fontSize: 13, color: '#6b7280' }}>
             Import directly from your bank or card provider. Credentials must be set in Settings first.
-            Imports the last 90 days. All records go to Review before being accepted.
+            Imports the last {lookbackDays} days. Change the period in Settings → Import Settings. All records go to Review before being accepted.
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {connectors.map((conn) => {

@@ -82,6 +82,33 @@ function normalizeDate(raw: string, warnings: Warning[], field: string): string 
   return raw;
 }
 
+// ── Credit card payment detection ────────────────────────────────────────────
+
+/**
+ * Detects bank-account debit transactions that represent a payment to a credit
+ * card company. These are transfers, not real expenses, and must be excluded
+ * from expense totals to avoid double-counting (the individual card charges are
+ * already tracked via the card connector).
+ *
+ * Patterns cover the common Hebrew and English descriptions that Israeli banks
+ * use when debiting the account to settle a credit card balance.
+ */
+const CC_PAYMENT_PATTERNS: RegExp[] = [
+  // Hebrew: "ל ויזה", "ל כ.א.ל", "ל ישראכרט", "ל מקס", "ל לאומי קארד", "ל דיינרס"
+  /^ל\s+(ויזה|כ[\s.]?א[\s.]?ל|ישראכרט|מקס|לאומי\s*קארד|דיינרס|אמריקן\s*אקספרס)/,
+  // Hebrew: "כרטיסי אשראי", "תשלום כרטיס אשראי"
+  /כרטיסי?\s+אשראי/,
+  // English descriptions that some banks emit
+  /\bVISA\s+CARD\s+PAYMENT\b/i,
+  /\bCREDIT\s+CARD\s+PAYMENT\b/i,
+  /\bISRACARD\s+PAYMENT\b/i,
+  /\bMAX\s+PAYMENT\b/i,
+];
+
+export function isCreditCardPayment(description: string): boolean {
+  return CC_PAYMENT_PATTERNS.some((re) => re.test(description));
+}
+
 // ── Normalization pipeline ────────────────────────────────────────────────────
 
 export interface NormalizationResult {
@@ -172,7 +199,9 @@ export function normalizeImport(
       description: raw.description,
       memo: raw.memo,
       status,
-      category: raw.category,
+      // Auto-detect credit card payments (bank-account debits settling a card balance).
+      // These are transfers, not expenses — insights layer excludes them from expense totals.
+      category: raw.category ?? (isCreditCardPayment(raw.description) ? 'credit_card_payment' : undefined),
       merchantId: raw.merchantId,
       installmentNumber: raw.installmentNumber,
       installmentTotal: raw.installmentTotal,

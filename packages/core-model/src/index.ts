@@ -13,7 +13,7 @@ export type { RawImportRecord } from './raw-import.js';
 
 // ── Normalization pipeline ────────────────────────────────────────────────────
 export type { NormalizationResult, ValidationError } from './normalization.js';
-export { normalizeImport, validateRawRecord, transactionId } from './normalization.js';
+export { normalizeImport, validateRawRecord, transactionId, isCreditCardPayment } from './normalization.js';
 
 // ── Deduplication ─────────────────────────────────────────────────────────────
 export type { DedupeResult, PotentialDuplicate } from './dedupe.js';
