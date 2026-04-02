@@ -13,5 +13,7 @@ export type { RetryOptions } from './retry.js';
 
 export { BaseAdapter } from './adapters/base.js';
 export { HapoalimConnector } from './adapters/hapoalim.js';
+export { LeumiConnector } from './adapters/leumi.js';
 export { MaxConnector } from './adapters/max.js';
+export { VisaCalConnector } from './adapters/visa-cal.js';
 export { FixtureConnector } from './adapters/fixture.js';

@@ -61,6 +61,9 @@ contextBridge.exposeInMainWorld('pocket', {
     testConnection: (connectorId: string) =>
       ipcRenderer.invoke('credentials:testConnection', connectorId),
   },
+  connector: {
+    run: (connectorId: string, startDate?: string) => ipcRenderer.invoke('connector:run', connectorId, startDate),
+  },
   fileImport: {
     pickAndExtract: () => ipcRenderer.invoke('fileImport:pickAndExtract'),
   },

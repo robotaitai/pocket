@@ -178,6 +178,15 @@ export interface ConnectorDescriptor {
   credentialFields: string[];
 }
 
+export interface ConnectorRunResult {
+  error?: string;
+  batchId?: string;
+  inserted?: number;
+  duplicates?: number;
+  errors?: string[];
+  accounts?: number;
+}
+
 export interface CredentialTestResult {
   ok: boolean;
   error?: string;
@@ -241,6 +250,9 @@ export interface PocketApi {
     getFieldStatus(connectorId: string, field: string): Promise<{ set: boolean }>;
     clearField(connectorId: string, field: string): Promise<void>;
     testConnection(connectorId: string): Promise<CredentialTestResult>;
+  };
+  connector: {
+    run(connectorId: string, startDate?: string): Promise<ConnectorRunResult>;
   };
   fileImport: {
     pickAndExtract(): Promise<FileImportResult>;

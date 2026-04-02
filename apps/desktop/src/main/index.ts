@@ -7,7 +7,7 @@ import { getProviderConfig, setProviderConfig } from './db/providers.js';
 import { POCKET_SERVICE, providerKeyAccount, connectorCredentialAccount } from './secrets/keys.js';
 import { createProvider } from '@pocket/agent-client';
 import type { ProviderConfig, ProviderType } from '@pocket/agent-client';
-import { HapoalimConnector, MaxConnector } from '@pocket/connectors-israel';
+import { HapoalimConnector, LeumiConnector, MaxConnector, VisaCalConnector } from '@pocket/connectors-israel';
 import { extractFile, ingestExtractedRecords } from './file-extractor.js';
 import {
   getBatchSummaries,
@@ -189,7 +189,7 @@ async function createWindow(): Promise<void> {
 
   // Connector credential management
   // Credentials are stored per connector per field: pocket:connector:<id>:<field>
-  const CONNECTORS = [new HapoalimConnector(), new MaxConnector()];
+  const CONNECTORS = [new HapoalimConnector(), new LeumiConnector(), new MaxConnector(), new VisaCalConnector()];
 
   ipcMain.handle('credentials:listConnectors', () =>
     CONNECTORS.map((c) => c.descriptor),
@@ -236,6 +236,97 @@ async function createWindow(): Promise<void> {
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : 'Connection test failed' };
     }
+  });
+
+  // Connector (scraper) import run
+  ipcMain.handle('connector:run', async (_e, connectorId: string, startDate: string) => {
+    const connector = CONNECTORS.find((c) => c.descriptor.id === connectorId);
+    if (!connector) return { error: `Unknown connector: ${connectorId}` };
+
+    const creds: Record<string, string> = {};
+    for (const field of connector.descriptor.credentialFields) {
+      const val = await secrets.get(POCKET_SERVICE, connectorCredentialAccount(connectorId, field));
+      if (!val) return { error: `Missing credential: ${field}. Set it in Settings → Bank and Card Credentials.` };
+      creds[field] = val;
+    }
+
+    const start = startDate ? new Date(startDate) : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+
+    let result;
+    try {
+      result = await connector.run(creds, { startDate: start });
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : 'Import failed' };
+    }
+
+    if (result.status === 'error') {
+      return { error: result.errorKind === 'auth' ? 'Authentication failed — check your credentials in Settings.' : result.message };
+    }
+
+    // Ensure accounts exist in DB
+    for (const account of result.accounts) {
+      const exists = db.prepare('SELECT id FROM accounts WHERE id = ?').get(account.id);
+      if (!exists) {
+        db.prepare(`
+          INSERT INTO accounts (id, institution, institution_type, account_number, type, currency, label)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(account.id, account.institution, account.institutionType, account.accountNumber, 'checking', account.currency, account.label ?? null);
+      }
+    }
+
+    // Ingest records
+    const { createImportBatch, normalizeImport, transactionId } = await import('@pocket/core-model');
+    const batch = createImportBatch({
+      sourceType: 'scraper',
+      connectorId,
+      extractionMethod: 'scraper',
+      providerUsed: connectorId,
+      extractorVersion: '1.0',
+    });
+
+    db.prepare(`
+      INSERT INTO import_batches (id, created_at, source_type, connector_id, account_ids, transaction_count, status, extraction_method, provider_used, extractor_version)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(batch.id, batch.createdAt, batch.sourceType, batch.connectorId, JSON.stringify(result.accounts.map(a => a.id)), result.rawRecords.length, 'completed', batch.extractionMethod, batch.providerUsed ?? null, batch.extractorVersion ?? null);
+
+    let inserted = 0;
+    let duplicates = 0;
+    const errors: string[] = [];
+
+    for (const record of result.rawRecords) {
+      try {
+        const normalized = normalizeImport([record], batch);
+        for (const txn of normalized.records) {
+          const id = transactionId(txn.accountId, txn.date, txn.processedDate, txn.originalAmount, txn.originalCurrency, txn.description);
+          const exists = db.prepare('SELECT id FROM transactions WHERE id = ?').get(id);
+          if (exists) { duplicates++; continue; }
+          db.prepare(`
+            INSERT INTO transactions (
+              id, account_id, date, processed_date, amount, original_amount, original_currency,
+              charged_currency, description, memo, status, category, source_type, source_file,
+              import_batch_id, import_timestamp, extraction_method, provider_used, extractor_version,
+              raw_reference, confidence_score, warnings, merchant_id, schema_version, reference_id,
+              installment_number, installment_total, review_status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+          `).run(
+            id, txn.accountId, txn.date, txn.processedDate, txn.amount, txn.originalAmount,
+            txn.originalCurrency, txn.chargedCurrency, txn.description, txn.memo ?? null,
+            txn.status, txn.category ?? null, txn.sourceType, txn.sourceFile ?? null,
+            txn.importBatchId, txn.importTimestamp, txn.extractionMethod,
+            txn.providerUsed ?? null, txn.extractorVersion ?? null, txn.rawReference ?? null,
+            txn.confidenceScore ?? null, JSON.stringify(txn.warnings),
+            txn.merchantId ?? null, txn.schemaVersion,
+            txn.referenceId ?? null, txn.installmentNumber ?? null, txn.installmentTotal ?? null,
+          );
+          inserted++;
+        }
+        errors.push(...normalized.failures.map(f => `${f.raw.description}: ${f.errors.map(e => e.message).join(', ')}`));
+      } catch (e) {
+        errors.push(e instanceof Error ? e.message : String(e));
+      }
+    }
+
+    return { batchId: batch.id, inserted, duplicates, errors, accounts: result.accounts.length };
   });
 
   // File import

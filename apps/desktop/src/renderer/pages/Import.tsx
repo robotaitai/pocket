@@ -1,12 +1,33 @@
-import React, { useState } from 'react';
-import type { FileImportResult } from '../pocket.js';
+import React, { useCallback, useEffect, useState } from 'react';
+import type { FileImportResult, ConnectorDescriptor, ConnectorRunResult } from '../pocket.js';
 
 type ImportState = 'idle' | 'extracting' | 'done' | 'error';
+type ConnectorRunState = 'idle' | 'running' | 'done' | 'error';
 
 export function Import(): React.ReactElement {
   const [state, setState] = useState<ImportState>('idle');
   const [result, setResult] = useState<FileImportResult | null>(null);
   const [onReviewClick, setOnReviewClick] = useState<(() => void) | null>(null);
+
+  // Scraper connectors
+  const [connectors, setConnectors] = useState<ConnectorDescriptor[]>([]);
+  const [runState, setRunState] = useState<Record<string, ConnectorRunState>>({});
+  const [runResults, setRunResults] = useState<Record<string, ConnectorRunResult>>({});
+
+  const loadConnectors = useCallback(async () => {
+    const list = await window.pocket.credentials.listConnectors();
+    setConnectors(list);
+  }, []);
+
+  useEffect(() => { void loadConnectors(); }, [loadConnectors]);
+
+  const handleRunConnector = async (connectorId: string) => {
+    setRunState((s) => ({ ...s, [connectorId]: 'running' }));
+    setRunResults((r) => { const n = { ...r }; delete n[connectorId]; return n; });
+    const res = await window.pocket.connector.run(connectorId);
+    setRunResults((r) => ({ ...r, [connectorId]: res }));
+    setRunState((s) => ({ ...s, [connectorId]: res.error ? 'error' : 'done' }));
+  };
 
   const handleImport = async () => {
     setState('extracting');
@@ -30,6 +51,55 @@ export function Import(): React.ReactElement {
       <p style={{ margin: '0 0 28px', fontSize: 14, color: '#6b7280' }}>
         Import financial data from CSV, Excel, or PDF files. Imported records enter the Review queue and require approval before they affect your data.
       </p>
+
+      {/* Bank / card scraper import */}
+      {connectors.length > 0 && (
+        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e5e7eb', padding: 20, marginBottom: 28 }}>
+          <h2 style={{ margin: '0 0 4px', fontSize: 14, fontWeight: 700, color: '#374151' }}>Bank and Card Import</h2>
+          <p style={{ margin: '0 0 16px', fontSize: 13, color: '#6b7280' }}>
+            Import directly from your bank or card provider. Credentials must be set in Settings first.
+            Imports the last 90 days. All records go to Review before being accepted.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {connectors.map((conn) => {
+              const st = runState[conn.id] ?? 'idle';
+              const res = runResults[conn.id];
+              return (
+                <div key={conn.id} style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                  <div style={{ minWidth: 140 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: '#111827' }}>{conn.name}</div>
+                    <div style={{ fontSize: 11, color: '#9ca3af' }}>{conn.institutionType}</div>
+                  </div>
+                  <button
+                    onClick={() => void handleRunConnector(conn.id)}
+                    disabled={st === 'running'}
+                    style={{
+                      padding: '7px 18px',
+                      background: st === 'running' ? '#6b7280' : '#1d4ed8',
+                      color: '#fff', border: 'none', borderRadius: 8,
+                      cursor: st === 'running' ? 'default' : 'pointer',
+                      fontSize: 13, fontWeight: 600,
+                    }}
+                  >
+                    {st === 'running' ? 'Importing...' : 'Import now'}
+                  </button>
+                  {st === 'done' && res && !res.error && (
+                    <span style={{ fontSize: 13, color: '#065f46' }}>
+                      {res.inserted} new transactions ({res.duplicates} duplicates skipped) — go to Review to accept
+                    </span>
+                  )}
+                  {(st === 'error' || res?.error) && (
+                    <span style={{ fontSize: 13, color: '#7f1d1d' }}>{res?.error ?? 'Import failed'}</span>
+                  )}
+                  {res?.errors && res.errors.length > 0 && (
+                    <span style={{ fontSize: 11, color: '#92400e' }}>{res.errors.length} row errors</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Format guide */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 28 }}>
