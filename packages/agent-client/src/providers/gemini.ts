@@ -23,7 +23,7 @@ export class GeminiProvider implements AgentProvider {
 
   constructor(
     private readonly apiKey: string,
-    model = 'gemini-1.5-flash',
+    model = 'gemini-2.0-flash',
   ) {
     this.model = model;
   }
@@ -39,14 +39,22 @@ export class GeminiProvider implements AgentProvider {
   }
 
   async extractDocument(input: ExtractionInput): Promise<ExtractionResult | null> {
-    const safeText = sanitizeDocumentText(input.documentText);
-    const prompt = [
+    const instructionText = [
       EXTRACTION_PROMPT_PREFIX,
       input.hint ? `(Document type: ${input.hint})` : '',
       input.defaultCurrency ? `(Default currency: ${input.defaultCurrency})` : '',
-      safeText,
     ].join('\n');
 
+    // When raw bytes are provided (e.g. a font-encoded PDF), send the file as
+    // inline multimodal data so Gemini can read it natively rather than relying
+    // on our text extractor output.
+    if (input.rawBytesBase64 && input.rawMimeType) {
+      const raw = await this.generateMultimodal(instructionText, input.rawBytesBase64, input.rawMimeType);
+      return parseExtractionResponse(raw);
+    }
+
+    const safeText = sanitizeDocumentText(input.documentText);
+    const prompt = instructionText + '\n' + safeText;
     const raw = await this.generate(prompt);
     return parseExtractionResponse(raw);
   }
@@ -65,16 +73,35 @@ export class GeminiProvider implements AgentProvider {
   }
 
   private async generate(prompt: string): Promise<string> {
+    return this.callApi([{ parts: [{ text: prompt }] }]);
+  }
+
+  /**
+   * Send a text instruction + binary file as a multimodal request.
+   * Used for font-encoded PDFs where text extraction is unreliable.
+   * Privacy: only the file bytes the user chose to import are sent.
+   */
+  private async generateMultimodal(instruction: string, base64Data: string, mimeType: string): Promise<string> {
+    return this.callApi([{
+      parts: [
+        { inline_data: { mime_type: mimeType, data: base64Data } },
+        { text: instruction },
+      ],
+    }]);
+  }
+
+  private async callApi(contents: unknown[]): Promise<string> {
     const res = await fetch(`${GEMINI_API_BASE}/models/${this.model}:generateContent?key=${this.apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
+        contents,
         generationConfig: { temperature: 0.1, maxOutputTokens: 4096 },
       }),
     });
     if (!res.ok) {
-      throw new Error(`Gemini API error: HTTP ${res.status}`);
+      const detail = await res.text().catch(() => '');
+      throw new Error(`Gemini API error: HTTP ${res.status}${detail ? ` — ${detail.slice(0, 200)}` : ''}`);
     }
     const data = await res.json() as {
       candidates: Array<{ content: { parts: Array<{ text: string }> } }>;

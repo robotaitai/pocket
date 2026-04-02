@@ -33,6 +33,15 @@ export const DEFAULT_PROVIDER_CONFIG: ProviderConfig = {
 export interface ExtractionInput {
   /** Raw text extracted from the document (PDF text layer, CSV rows, etc.). */
   documentText: string;
+  /**
+   * Raw file bytes as a base64 string. When provided and the provider supports
+   * native document understanding (e.g. Gemini multimodal), the binary is sent
+   * directly and the model reads the document without relying on our text extraction.
+   * This is required for font-encoded PDFs where the text layer is inaccessible.
+   */
+  rawBytesBase64?: string;
+  /** MIME type of the raw bytes, e.g. 'application/pdf'. */
+  rawMimeType?: string;
   /** Human-readable hint about the document type / institution, if known. */
   hint?: string;
   /** Suggested currency for amounts found without explicit currency markers. */

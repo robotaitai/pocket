@@ -36,5 +36,5 @@ export function createProvider(creds: ProviderCredentials): AgentProvider {
 export const DEFAULT_MODELS: Record<Exclude<ProviderType, 'local'>, string> = {
   openai: 'gpt-4o-mini',
   anthropic: 'claude-3-haiku-20240307',
-  gemini: 'gemini-1.5-flash',
+  gemini: 'gemini-2.0-flash',
 };

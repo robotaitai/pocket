@@ -215,6 +215,8 @@ async function extractPdf(opts: ExtractionOptions): Promise<FileExtractionResult
         documentWarnings: [],
       };
     }
+    // Native parser found no rows — likely a font-encoded PDF where the text
+    // extractor produced garbled output. Fall through to AI with raw bytes.
   }
 
   // ── 2. AI provider fallback ──
@@ -230,9 +232,14 @@ async function extractPdf(opts: ExtractionOptions): Promise<FileExtractionResult
   }
 
   try {
+    // Pass the raw PDF bytes so providers that support native document understanding
+    // (Gemini multimodal) can read the file directly, bypassing our text extractor.
+    // This is essential for font-encoded PDFs where text extraction returns garbled output.
     const result = await opts.provider.extractDocument({
       documentText,
-      hint: 'Israeli bank/credit card statement PDF',
+      rawBytesBase64: buf.toString('base64'),
+      rawMimeType: 'application/pdf',
+      hint: 'Israeli bank/credit card statement PDF — extract all transaction rows with date, merchant, and amount',
       defaultCurrency: opts.defaultCurrency ?? 'ILS',
     });
 
@@ -318,20 +325,23 @@ function isCalPdf(text: string): boolean {
  *   - Amounts (₪ XX.XX) are always clean because digits are direction-neutral.
  *
  * Transaction row format in the extracted text (all on one or two lines):
- *   ₪ {charged_ils} ₪ {original_amount} {flags/category text} {merchant text} {reversed_date}
+ *   [₪] {charged_ils} [₪] {original_amount} {flags/category text} {merchant text} {reversed_date}
  *
- * Lines beginning with "₪" and containing "סה\"כ" are summary totals — skipped.
+ * The ₪ prefix is optional — if the PDF stores the shekel sign via a font glyph
+ * the text extractor may not see it, so we match with or without it.
+ * Lines containing "סה\"כ" or "סהכ" are summary totals — skipped.
  */
 function parseCalPdf(text: string, accountId: string, sourceFile: string): RawImportRecord[] {
   const records: RawImportRecord[] = [];
 
-  // Join the whole text into one string and normalise whitespace
+  // Normalise whitespace (tabs → spaces, collapse runs)
   const flat = text.replace(/\t/g, ' ').replace(/ {2,}/g, ' ');
 
-  // Split on ₪ to get candidate transaction segments.
-  // Each segment starting with a number followed by ₪ is a transaction row.
-  // Pattern: ₪ {amount} ₪ {amount} {description+date}
-  const txnPattern = /₪\s*([\d,]+\.?\d*)\s+₪\s*([\d,]+\.?\d*)\s+([^₪]+)/g;
+  // Transaction pattern:
+  //   optional ₪  then  decimal amount  then  optional ₪  then  decimal amount  then  description+date
+  // The ₪ is made optional (?:₪\s*)? so the parser works even when the extractor can't
+  // see the shekel glyph (encoded via custom font mapping in some PDF generators).
+  const txnPattern = /(?:₪\s*)?([\d,]+\.\d{2})\s+(?:₪\s*)?([\d,]+\.\d{2})\s+([^₪\d].+)/g;
   let match = txnPattern.exec(flat);
 
   while (match) {
@@ -402,30 +412,71 @@ function parseCalPdf(text: string, accountId: string, sourceFile: string): RawIm
 }
 
 /**
- * Naive PDF text extraction — reads the text stream from the PDF byte content.
- * Handles simple text-layer PDFs. For complex PDFs (image-only, encrypted),
- * the provider must handle interpretation from partial text.
+ * PDF text extraction — reads text streams from BT/ET blocks.
  *
- * This approach avoids adding a pdf-parse dependency. If the text layer is
- * absent, the provider receives the raw visible strings and uses its OCR/vision.
+ * Israeli bank PDFs store Hebrew and special characters (₪) as UTF-8 inside
+ * the PDF string literals. Reading the buffer as 'latin1' would garble every
+ * multi-byte sequence, so we read as 'utf8' here.
+ *
+ * We also decode octal escape sequences (\ddd) that PDF producers use for
+ * non-ASCII bytes within Tj string literals.
+ *
+ * This approach avoids adding a pdf-parse dependency.
  */
 function extractPdfText(buf: Buffer): string {
-  const raw = buf.toString('latin1');
-  // Extract text between BT (begin text) and ET (end text) markers
+  // Read as UTF-8 so ₪ (E2 82 AA) and Hebrew characters decode correctly.
+  const raw = buf.toString('utf8');
+
   const textChunks: string[] = [];
   const btEtPattern = /BT([\s\S]*?)ET/g;
   let m = btEtPattern.exec(raw);
   while (m) {
-    // Extract strings from Tj and TJ operators
+    const block = m[1] ?? '';
+
+    // Parenthesised string literals ending with Tj: (text)Tj
     const tjPattern = /\(((?:[^()\\]|\\.)*)\)\s*Tj/g;
-    let tj = tjPattern.exec(m[1] ?? '');
+    let tj = tjPattern.exec(block);
     while (tj) {
-      textChunks.push(tj[1]?.replace(/\\n/g, '\n').replace(/\\\(/g, '(').replace(/\\\)/g, ')') ?? '');
-      tj = tjPattern.exec(m[1] ?? '');
+      const decoded = decodePdfString(tj[1] ?? '');
+      if (decoded.trim()) textChunks.push(decoded);
+      tj = tjPattern.exec(block);
     }
+
+    // Array form ending with TJ: [(text1)(text2)]TJ  — common in Hebrew PDFs
+    const tjArrayPattern = /\[((?:[^[\]]*|\([^)]*\))*)\]\s*TJ/g;
+    let tja = tjArrayPattern.exec(block);
+    while (tja) {
+      const inner = tja[1] ?? '';
+      const parens = /\(((?:[^()\\]|\\.)*)\)/g;
+      let p = parens.exec(inner);
+      while (p) {
+        const decoded = decodePdfString(p[1] ?? '');
+        if (decoded.trim()) textChunks.push(decoded);
+        p = parens.exec(inner);
+      }
+      tja = tjArrayPattern.exec(block);
+    }
+
     m = btEtPattern.exec(raw);
   }
-  return textChunks.join(' ').replace(/\s+/g, ' ').trim() || '[PDF text extraction unavailable — the document may be image-only]';
+  return textChunks.join(' ').replace(/\s+/g, ' ').trim()
+    || '[PDF text extraction unavailable — the document may be image-only]';
+}
+
+/**
+ * Decode a raw PDF string literal:
+ *   - Unescape PDF escape sequences: \\n, \\r, \\t, \\(, \\), \\\\
+ *   - Decode octal escapes: \\ddd  (common for non-ASCII in Latin-1 encoded PDFs)
+ */
+function decodePdfString(s: string): string {
+  return s
+    .replace(/\\([0-7]{1,3})/g, (_, oct) => String.fromCharCode(parseInt(oct, 8)))
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '\r')
+    .replace(/\\t/g, '\t')
+    .replace(/\\\(/g, '(')
+    .replace(/\\\)/g, ')')
+    .replace(/\\\\/g, '\\');
 }
 
 // ── Ingestion into DB ──────────────────────────────────────────────────────────
