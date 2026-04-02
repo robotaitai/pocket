@@ -79,3 +79,26 @@ Resolution: pending.
 - **Workaround for tests**: `cd node_modules/.pnpm/better-sqlite3@11.10.0/node_modules/better-sqlite3 && npx node-gyp rebuild`
 - **Workaround for app**: `cd apps/desktop && npx @electron/rebuild -f -w better-sqlite3`
 - **Permanent fix**: CI should rebuild before running tests. App packaging scripts should run `@electron/rebuild`.
+
+## Step 7 known issues
+
+### KI-007-1 — `.xls` (legacy Excel) files silently fall through
+
+**Status:** Deferred  
+**Impact:** Low — `.xls` is uncommon for modern bank exports  
+**Detail:** The `extractFile` switch only handles `xlsx`. Files with `.xls` extension hit the "unsupported" branch. The `xlsx` npm library supports both but the `SupportedFileType` union would need extending.  
+**Fix when needed:** Add `'xls'` to `SupportedFileType` and handle it in the switch.
+
+### KI-007-2 — PDF extraction quality is provider-dependent
+
+**Status:** By design  
+**Impact:** Medium — image-only PDFs or scanned documents may extract poorly  
+**Detail:** The naive `extractPdfText` function reads only the text stream from the PDF binary. Image-only or encrypted PDFs produce empty or garbage text. The provider receives this text and may return no results.  
+**Fix when needed:** Add a proper PDF library (`pdf-parse` or similar) after security review, or prompt the user to provide text-layer PDFs.
+
+### KI-007-3 — Connector import not wired to Import UI
+
+**Status:** Deferred  
+**Impact:** Medium — users cannot trigger scraper imports from the app UI  
+**Detail:** The file import UI handles CSV/XLSX/PDF, but the existing scraper connectors have no UI trigger. Connector imports can only be initiated via the internal API or dev tools.  
+**Fix when needed:** Add a "Connect bank account" flow in the Import tab.

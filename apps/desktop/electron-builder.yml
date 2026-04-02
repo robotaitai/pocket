@@ -1,0 +1,72 @@
+appId: com.pocket.app
+productName: Pocket
+copyright: "Copyright 2026 Pocket"
+
+directories:
+  buildResources: build
+  output: dist/release
+
+# Main entry (compiled output)
+files:
+  - dist/main/**/*
+  - dist/preload/**/*
+  - dist/renderer/**/*
+  - package.json
+  - node_modules/**/*
+
+# macOS
+mac:
+  category: public.app-category.finance
+  # Universal binary (Apple Silicon + Intel)
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+  # Ad-hoc signing for local distribution (no Apple Developer account required).
+  # For App Store or notarized distribution, set identity and notarize config.
+  identity: null
+  hardenedRuntime: false
+  gatekeeperAssess: false
+
+dmg:
+  title: "Pocket ${version}"
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+
+# Linux (for future CI testing)
+linux:
+  target:
+    - AppImage
+  category: Finance
+
+# Windows (for future support)
+win:
+  target:
+    - nsis
+  publisherName: Pocket
+
+# Electron version should match what's installed
+electronVersion: null
+
+# Native modules
+npmRebuild: true
+
+# Publish config — disabled by default
+# To publish to GitHub Releases, set GH_TOKEN and uncomment:
+# publish:
+#   provider: github
+#   owner: your-org
+#   repo: pocket
+
+# Asar packaging — package app code for integrity
+asar: true
+asarUnpack:
+  # Native modules must be unpacked
+  - "node_modules/better-sqlite3/**"
+  - "node_modules/keytar/**"

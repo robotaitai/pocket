@@ -155,6 +155,33 @@ export interface TransactionRow {
   warnings: unknown[];
 }
 
+export type ProviderType = 'openai' | 'anthropic' | 'gemini' | 'local';
+export type AgentMode = 'local' | 'connected';
+
+export interface ProviderConfig {
+  mode: AgentMode;
+  providerType: ProviderType;
+  chatEnhancementEnabled: boolean;
+  merchantSuggestionsEnabled: boolean;
+}
+
+export interface ConnectionTestResult {
+  ok: boolean;
+  error?: string;
+  local?: boolean;
+}
+
+export interface FileImportResult {
+  canceled?: boolean;
+  error?: string;
+  batchId?: string;
+  inserted?: number;
+  duplicates?: number;
+  errors?: string[];
+  documentWarnings?: string[];
+  sourceType?: string;
+}
+
 export interface PocketApi {
   settings: {
     get(key: string): Promise<string | undefined>;
@@ -187,6 +214,16 @@ export interface PocketApi {
     getImportHealth(): Promise<ImportHealthReport>;
     chat(question: string): Promise<ChatAnswer>;
     export(filter: SearchFilter): Promise<ExportResult>;
+  };
+  provider: {
+    getConfig(): Promise<ProviderConfig>;
+    setConfig(config: Partial<ProviderConfig>): Promise<void>;
+    setKey(providerType: ProviderType, apiKey: string): Promise<void>;
+    clearKey(providerType: ProviderType): Promise<void>;
+    testConnection(): Promise<ConnectionTestResult>;
+  };
+  fileImport: {
+    pickAndExtract(): Promise<FileImportResult>;
   };
 }
 

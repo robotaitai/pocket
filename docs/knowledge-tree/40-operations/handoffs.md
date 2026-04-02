@@ -331,3 +331,53 @@ Agent-to-agent handoff log. Append after completing each step. Never delete entr
 - File-based importers (PDF/XLSX/CSV) still not implemented
 - Timeline paginates at 200 results — add virtual scrolling for larger datasets
 - Recurring detection could improve with fuzzy merchant matching across slightly different descriptions
+
+## Step 7 — Connected agent mode, shared intelligence, privacy boundaries, release hardening — 2026-04-02
+
+### What was done
+
+- Created `packages/agent-client` — provider abstraction with adapters for OpenAI, Anthropic (Claude), and Google Gemini, plus a local no-op provider
+- All adapters use raw `fetch` (no SDK deps); justified because provider SDKs add 1–2MB each for endpoints we barely use
+- Defined privacy contract in `packages/agent-client/src/privacy.ts` with sanitization functions for all three payload types (extraction, chat, merchant suggestion)
+- Added `xlsx` dep to `apps/desktop` for native XLSX parsing (justified: no standard Node.js XLSX parser)
+- Created `apps/desktop/src/main/file-extractor.ts` — CSV (native, no provider), XLSX (xlsx lib, no provider), PDF (provider required, local-only returns clear error)
+- Created `apps/desktop/src/main/db/providers.ts` — provider config persistence in SQLite settings, key names for keychain
+- Extended `apps/desktop/src/main/index.ts` with 7 new IPC handlers: `provider:getConfig`, `provider:setConfig`, `provider:setKey`, `provider:clearKey`, `provider:testConnection`, `fileImport:pickAndExtract`
+- Extended `chat-executor.ts` with optional provider parameter; enhancement passes only question + formatted text to provider (never raw DB data)
+- Created `apps/desktop/src/renderer/pages/Settings.tsx` — full settings page: mode toggle, provider selector, API key input with show/hide, test connection, capability toggles, privacy boundaries panel
+- Created `apps/desktop/src/renderer/pages/Import.tsx` — file picker, extraction progress, result display with stats and warnings
+- Added Import and Settings tabs to `Dashboard.tsx`
+- Added `electron-builder.yml` with macOS arm64 + x64 DMG config, Linux AppImage, Windows NSIS, asar packaging with native module unpack
+- Added `build:release` and `build:mac` scripts to desktop package
+- Extended `pocket.d.ts` and `preload/index.ts` with provider and fileImport APIs
+- Fixed vitest alias config in desktop to include `@pocket/agent-client`
+- 243 total tests passing (35 new in agent-client)
+
+### Decisions made
+
+- **Local-only mode is default** — app ships in local mode, user explicitly opts in to connected mode. Rationale: minimizes risk surface for new users.
+- **No provider SDKs** — use raw fetch. Rationale: SDKs add 1-2MB each for 3 endpoints we use; fetch is auditable and avoids transitive deps.
+- **PDF requires provider** — no local PDF text parser added. Rationale: `pdf-parse` and similar libs are complex with security history; provider-assisted extraction is already the design intent.
+- **Extraction payload = document text only** — never account IDs, balances, or DB data. Defense in depth: `sanitizeDocumentText` strips any IBAN patterns even from user documents.
+- **Chat enhancement is pass-through on failure** — if provider call fails, user sees local answer unchanged. No silent degradation.
+- **xls handled as xlsx** — removed `xls` case from switch; XLSX lib handles both extensions but the type is typed as `xlsx`. Avoids type error.
+- **electron-builder with ad-hoc signing** — no Apple Developer account required for local distribution. Notarization documented but not configured.
+
+### What the next agent must read
+
+- `packages/agent-client/src/types.ts` — AgentProvider interface and all payload types
+- `packages/agent-client/src/privacy.ts` — privacy contract and enforcement
+- `apps/desktop/src/main/file-extractor.ts` — extraction pipeline and ingestion
+- `apps/desktop/src/main/db/providers.ts` — config storage
+- `apps/desktop/src/main/index.ts` — all IPC handlers (provider: and fileImport: namespaces)
+- `apps/desktop/electron-builder.yml` — release packaging config
+- `docs/knowledge-tree/40-operations/known-issues.md` — see Step 7 entries
+
+### Pending / deferred
+
+- `.xls` (legacy Excel) files not handled — XLSX lib supports them but requires the SupportedFileType union to be extended
+- Shared merchant/category suggestion service not implemented — abstraction in place, real endpoint TBD
+- Windows and Linux release builds not tested — config is present but untested on those platforms
+- Auto-update not configured — electron-updater would require a hosting endpoint
+- Connector (scraper) import UI still not wired to Dashboard — can be triggered via dev tools but no UI button exists
+- PDF extraction quality depends entirely on the provider and document text layer quality

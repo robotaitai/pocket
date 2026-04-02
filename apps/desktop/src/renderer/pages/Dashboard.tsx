@@ -6,8 +6,10 @@ import { MerchantView } from './MerchantView.js';
 import { Timeline } from './Timeline.js';
 import { ImportHealth } from './ImportHealth.js';
 import { Chat } from './Chat.js';
+import { Import } from './Import.js';
+import { Settings } from './Settings.js';
 
-type Tab = 'home' | 'review' | 'recurring' | 'merchants' | 'timeline' | 'health' | 'chat';
+type Tab = 'home' | 'review' | 'recurring' | 'merchants' | 'timeline' | 'health' | 'chat' | 'import' | 'settings';
 
 const TABS: Array<{ id: Tab; label: string }> = [
   { id: 'home', label: 'Home' },
@@ -17,6 +19,8 @@ const TABS: Array<{ id: Tab; label: string }> = [
   { id: 'timeline', label: 'Timeline' },
   { id: 'health', label: 'Import Health' },
   { id: 'chat', label: 'Chat' },
+  { id: 'import', label: 'Import' },
+  { id: 'settings', label: 'Settings' },
 ];
 
 export function Dashboard() {
@@ -59,6 +63,8 @@ export function Dashboard() {
         {tab === 'timeline' && <Timeline />}
         {tab === 'health' && <ImportHealth />}
         {tab === 'chat' && <Chat />}
+        {tab === 'import' && <Import />}
+        {tab === 'settings' && <Settings />}
       </main>
     </div>
   );

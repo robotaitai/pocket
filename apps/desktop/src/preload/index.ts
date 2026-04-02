@@ -43,4 +43,14 @@ contextBridge.exposeInMainWorld('pocket', {
     chat: (question: string) => ipcRenderer.invoke('insights:chat', question),
     export: (filter: object) => ipcRenderer.invoke('insights:export', filter),
   },
+  provider: {
+    getConfig: () => ipcRenderer.invoke('provider:getConfig'),
+    setConfig: (config: object) => ipcRenderer.invoke('provider:setConfig', config),
+    setKey: (providerType: string, apiKey: string) => ipcRenderer.invoke('provider:setKey', providerType, apiKey),
+    clearKey: (providerType: string) => ipcRenderer.invoke('provider:clearKey', providerType),
+    testConnection: () => ipcRenderer.invoke('provider:testConnection'),
+  },
+  fileImport: {
+    pickAndExtract: () => ipcRenderer.invoke('fileImport:pickAndExtract'),
+  },
 });

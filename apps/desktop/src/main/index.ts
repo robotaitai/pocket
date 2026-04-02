@@ -3,6 +3,10 @@ import path from 'node:path';
 import { openDb } from './db/init.js';
 import { getSetting, setSetting } from './db/settings.js';
 import { createSecretStore } from './secrets/index.js';
+import { getProviderConfig, setProviderConfig, providerKeychainAccount } from './db/providers.js';
+import { createProvider } from '@pocket/agent-client';
+import type { ProviderConfig, ProviderType } from '@pocket/agent-client';
+import { extractFile, ingestExtractedRecords } from './file-extractor.js';
 import {
   getBatchSummaries,
   getTransactionsForReview,
@@ -130,9 +134,15 @@ async function createWindow(): Promise<void> {
     return buildImportHealthReport(rows);
   });
 
-  ipcMain.handle('insights:chat', (_e, question: string) =>
-    executeChat(db, question),
-  );
+  ipcMain.handle('insights:chat', async (_e, question: string) => {
+    const config = getProviderConfig(db);
+    let provider;
+    if (config.mode === 'connected' && config.chatEnhancementEnabled) {
+      const apiKey = await secrets.get(POCKET_SERVICE, providerKeychainAccount(config.providerType));
+      provider = createProvider({ providerType: config.providerType, apiKey: apiKey ?? undefined });
+    }
+    return executeChat(db, question, provider, config.chatEnhancementEnabled);
+  });
 
   ipcMain.handle('insights:export', async (_e, filter: SearchFilter) => {
     const txns = getTransactionsForExport(db, filter);
@@ -148,6 +158,87 @@ async function createWindow(): Promise<void> {
     if (canceled || !filePath) return { success: false, reason: 'canceled' };
     await writeFile(filePath, csv, 'utf-8');
     return { success: true, filePath };
+  });
+
+  // Provider / connected-agent mode
+  ipcMain.handle('provider:getConfig', () => getProviderConfig(db));
+
+  ipcMain.handle('provider:setConfig', (_e, config: Partial<ProviderConfig>) => {
+    setProviderConfig(db, config);
+  });
+
+  ipcMain.handle('provider:setKey', async (_e, providerType: ProviderType, apiKey: string) => {
+    const account = providerKeychainAccount(providerType);
+    await secrets.set(POCKET_SERVICE, account, apiKey);
+  });
+
+  ipcMain.handle('provider:clearKey', async (_e, providerType: ProviderType) => {
+    const account = providerKeychainAccount(providerType);
+    await secrets.delete(POCKET_SERVICE, account);
+  });
+
+  ipcMain.handle('provider:testConnection', async () => {
+    const config = getProviderConfig(db);
+    if (config.mode === 'local') return { ok: true, local: true };
+    const apiKey = await secrets.get(POCKET_SERVICE, providerKeychainAccount(config.providerType));
+    if (!apiKey) return { ok: false, error: 'No API key stored for this provider' };
+    const provider = createProvider({ providerType: config.providerType, apiKey });
+    return provider.testConnection();
+  });
+
+  // File import
+  ipcMain.handle('fileImport:pickAndExtract', async () => {
+    const config = getProviderConfig(db);
+    const apiKey = config.mode === 'connected'
+      ? await secrets.get(POCKET_SERVICE, providerKeychainAccount(config.providerType))
+      : undefined;
+    const provider = createProvider({ providerType: config.mode === 'connected' ? config.providerType : 'local', apiKey: apiKey ?? undefined });
+
+    const { filePaths, canceled } = await dialog.showOpenDialog({
+      title: 'Import financial file',
+      filters: [
+        { name: 'Financial files', extensions: ['csv', 'xlsx', 'xls', 'pdf'] },
+        { name: 'CSV', extensions: ['csv'] },
+        { name: 'Excel', extensions: ['xlsx', 'xls'] },
+        { name: 'PDF', extensions: ['pdf'] },
+      ],
+      properties: ['openFile'],
+    });
+    if (canceled || filePaths.length === 0) return { canceled: true };
+
+    const filePath = filePaths[0]!;
+
+    // Use a fallback account — user can choose in Settings; default to first account
+    const firstAccount = db.prepare<[], { id: string }>('SELECT id FROM accounts LIMIT 1').get();
+    if (!firstAccount) return { error: 'No accounts configured. Add an account before importing files.' };
+
+    const extractionResult = await extractFile({
+      filePath,
+      accountId: firstAccount.id,
+      provider,
+      defaultCurrency: 'ILS',
+    });
+
+    if (extractionResult.error) return { error: extractionResult.error };
+    if (extractionResult.records.length === 0) return { error: 'No transactions found in the file.' };
+
+    const ingestion = ingestExtractedRecords(db, extractionResult.records, {
+      sourceType: extractionResult.sourceType,
+      extractionMethod: extractionResult.sourceType === 'pdf' ? 'agent' : 'structured-parse',
+      sourceFile: filePath,
+      accountId: firstAccount.id,
+      providerType: config.mode === 'connected' ? config.providerType : 'local',
+      overallConfidence: extractionResult.overallConfidence,
+    });
+
+    return {
+      batchId: ingestion.batchId,
+      inserted: ingestion.inserted,
+      duplicates: ingestion.duplicates,
+      errors: ingestion.errors,
+      documentWarnings: extractionResult.documentWarnings,
+      sourceType: extractionResult.sourceType,
+    };
   });
 
   const firstRun = getSetting(db, 'firstRunComplete') !== 'true';

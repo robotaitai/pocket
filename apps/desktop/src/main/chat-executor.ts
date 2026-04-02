@@ -11,10 +11,16 @@ import {
   SUGGESTED_QUESTIONS,
 } from '@pocket/insights';
 import type { ChatAnswer, ChatSource } from '@pocket/insights';
+import type { AgentProvider } from '@pocket/agent-client';
 import { getAcceptedTransactions } from './db/insights.js';
 
-export async function executeChat(db: Database.Database, question: string): Promise<ChatAnswer> {
-  const plan = parseChatQuestion(question);
+export async function executeChat(
+  db: Database.Database,
+  question: string,
+  provider?: AgentProvider,
+  chatEnhancementEnabled = false,
+): Promise<ChatAnswer> {
+  let plan = parseChatQuestion(question);
   const sources: ChatSource[] = [];
   let text = '';
   let uncertainty: string | null = null;
@@ -162,6 +168,23 @@ export async function executeChat(db: Database.Database, question: string): Prom
     default: {
       text = `I couldn't understand that question. Here are some things I can answer:\n\n${SUGGESTED_QUESTIONS.map((q) => `• ${q}`).join('\n')}`;
       uncertainty = 'Question pattern not recognized.';
+    }
+  }
+
+  // Optional provider enhancement — only if connected, enabled, and local query succeeded
+  if (
+    provider && !provider.isLocal && chatEnhancementEnabled && plan.intent !== 'unknown' && text
+  ) {
+    try {
+      const enhanced = await provider.enhanceChatAnswer({ question, localAnswer: text });
+      if (enhanced && enhanced !== text) {
+        text = enhanced;
+        if (!uncertainty) uncertainty = null;
+        // Note in queryPlan that enhancement was applied
+        plan = { ...plan, humanReadable: `${plan.humanReadable} (AI-enhanced)` };
+      }
+    } catch {
+      // Enhancement failed — fall back to local answer silently
     }
   }
 
