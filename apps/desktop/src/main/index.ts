@@ -101,6 +101,14 @@ async function createWindow(): Promise<void> {
   ipcMain.handle('merchantRules:getAll', () => getAllMerchantRules(db));
   ipcMain.handle('merchantRules:suggest', (_e, description: string) => suggestCategory(db, description));
   ipcMain.handle('merchantRules:delete', (_e, id: string) => deleteMerchantRule(db, id));
+  ipcMain.handle('merchantRules:setForMerchant', (_e, description: string, category: string) => {
+    // Save the merchant rule so future imports auto-categorize.
+    recordMerchantRule(db, description, category);
+    // Apply to all existing accepted transactions with this exact description.
+    db.prepare(
+      `UPDATE transactions SET category = ? WHERE description = ? AND review_status = 'accepted'`,
+    ).run(category, description);
+  });
 
   // Insights — period summaries
   ipcMain.handle('insights:getSummary', (_e, periodKey: string) => {

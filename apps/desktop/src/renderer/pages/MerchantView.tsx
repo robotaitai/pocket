@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import type { MerchantSummary } from '../pocket.js';
 import { formatCurrency, formatDate } from '../utils/format.js';
-import { CATEGORY_LABELS } from '../constants.js';
+import { CATEGORIES, CATEGORY_LABELS } from '../constants.js';
 
 type Tab = 'all' | 'new' | 'suspicious';
 
@@ -10,6 +10,8 @@ export function MerchantView(): React.ReactElement {
   const [newMerchants, setNewMerchants] = useState<MerchantSummary[]>([]);
   const [tab, setTab] = useState<Tab>('all');
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState<string | null>(null);
+  const [localCats, setLocalCats] = useState<Record<string, string>>({});
 
   useEffect(() => {
     void Promise.all([
@@ -21,6 +23,13 @@ export function MerchantView(): React.ReactElement {
       setLoading(false);
     });
   }, []);
+
+  const handleCategoryChange = async (description: string, category: string) => {
+    setSaving(description);
+    setLocalCats((c) => ({ ...c, [description]: category }));
+    await window.pocket.merchantRules.setForMerchant(description, category);
+    setSaving(null);
+  };
 
   const displayed = tab === 'all' ? all
     : tab === 'new' ? newMerchants.filter((m) => m.isNew)
@@ -85,12 +94,23 @@ export function MerchantView(): React.ReactElement {
                   <span style={{ fontSize: 14, fontWeight: 500, color: '#111827' }}>{m.description}</span>
                 </td>
                 <td style={td('left')}>
-                  {m.effectiveCategory ? (
-                    <span style={{ fontSize: 12, padding: '2px 8px', borderRadius: 12, background: '#ede9fe', color: '#5b21b6' }}>
-                      {CATEGORY_LABELS[m.effectiveCategory] ?? m.effectiveCategory}
-                    </span>
-                  ) : (
-                    <span style={{ fontSize: 12, color: '#9ca3af', fontStyle: 'italic' }}>Untagged</span>
+                  <select
+                    value={localCats[m.description] ?? m.effectiveCategory ?? ''}
+                    onChange={(e) => void handleCategoryChange(m.description, e.target.value)}
+                    disabled={saving === m.description}
+                    style={{
+                      fontSize: 12, padding: '3px 6px', borderRadius: 8,
+                      border: '1px solid #d1d5db', background: '#fff',
+                      color: '#374151', cursor: 'pointer', minWidth: 110,
+                    }}
+                  >
+                    <option value="">Untagged</option>
+                    {CATEGORIES.map((cat) => (
+                      <option key={cat} value={cat}>{CATEGORY_LABELS[cat] ?? cat}</option>
+                    ))}
+                  </select>
+                  {saving === m.description && (
+                    <span style={{ fontSize: 11, color: '#9ca3af', marginLeft: 6 }}>saving...</span>
                   )}
                 </td>
                 <td style={td('right')}>

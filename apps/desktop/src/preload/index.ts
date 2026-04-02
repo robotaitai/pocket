@@ -32,6 +32,8 @@ contextBridge.exposeInMainWorld('pocket', {
     getAll: () => ipcRenderer.invoke('merchantRules:getAll'),
     suggest: (description: string) => ipcRenderer.invoke('merchantRules:suggest', description),
     delete: (id: string) => ipcRenderer.invoke('merchantRules:delete', id),
+    setForMerchant: (description: string, category: string) =>
+      ipcRenderer.invoke('merchantRules:setForMerchant', description, category),
   },
   insights: {
     getSummary: (periodKey: string) => ipcRenderer.invoke('insights:getSummary', periodKey),

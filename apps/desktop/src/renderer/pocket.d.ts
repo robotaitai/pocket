@@ -226,6 +226,7 @@ export interface PocketApi {
     getAll(): Promise<MerchantRule[]>;
     suggest(description: string): Promise<string | null>;
     delete(id: string): Promise<void>;
+    setForMerchant(description: string, category: string): Promise<void>;
   };
   insights: {
     getSummary(periodKey: string): Promise<PeriodSummary>;

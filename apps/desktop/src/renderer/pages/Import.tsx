@@ -62,10 +62,15 @@ export function Import(): React.ReactElement {
       {connectors.length > 0 && (
         <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e5e7eb', padding: 20, marginBottom: 28 }}>
           <h2 style={{ margin: '0 0 4px', fontSize: 14, fontWeight: 700, color: '#374151' }}>Bank and Card Import</h2>
-          <p style={{ margin: '0 0 16px', fontSize: 13, color: '#6b7280' }}>
+          <p style={{ margin: '0 0 4px', fontSize: 13, color: '#6b7280' }}>
             Import directly from your bank or card provider. Credentials must be set in Settings first.
-            Imports the last {lookbackDays} days. Change the period in Settings → Import Settings. All records go to Review before being accepted.
+            All records go to Review before being accepted.
           </p>
+          <div style={{ margin: '0 0 16px', padding: '8px 12px', background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 8, fontSize: 12, color: '#92400e' }}>
+            Bank account scrapers are limited to the last ~3 months by the bank API, regardless of the lookback setting.
+            For older data, download a PDF or CSV from your bank website and import it below.
+            Credit card statements (e.g. Leumi Visa / Mastercard) must be imported as PDFs from the bank credit card portal.
+          </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {connectors.map((conn) => {
               const st = runState[conn.id] ?? 'idle';
@@ -106,6 +111,18 @@ export function Import(): React.ReactElement {
           </div>
         </div>
       )}
+
+      {/* Credit card PDF guide */}
+      <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 12, padding: '14px 18px', marginBottom: 20 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#1e40af', marginBottom: 6 }}>How to import Leumi credit card statements</div>
+        <ol style={{ margin: 0, paddingLeft: 20, fontSize: 13, color: '#374151', lineHeight: 1.8 }}>
+          <li>Go to <strong>hb2.bankleumi.co.il</strong> and sign in</li>
+          <li>Navigate to <strong>כרטיסי אשראי</strong> (Credit Cards)</li>
+          <li>Select your card (Visa 4411 or Mastercard 9414)</li>
+          <li>Choose a billing period and click <strong>יצוא לקובץ</strong> (Export) → PDF</li>
+          <li>Come back here and click <strong>Choose File to Import</strong> below — Gemini will extract the transactions</li>
+        </ol>
+      </div>
 
       {/* Format guide */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 28 }}>
