@@ -162,13 +162,13 @@ export function Import(): React.ReactElement {
             cursor: state === 'extracting' ? 'default' : 'pointer',
           }}
         >
-          {state === 'extracting' ? 'Extracting...' : 'Choose File to Import'}
+          {state === 'extracting' ? 'Extracting...' : 'Choose Files to Import'}
         </button>
-        {state === 'extracting' && (
-          <p style={{ marginTop: 12, fontSize: 13, color: '#9ca3af' }}>
-            Reading file and extracting transactions — this may take a moment for PDFs.
-          </p>
-        )}
+        <p style={{ marginTop: 8, fontSize: 12, color: '#9ca3af' }}>
+          {state === 'extracting'
+            ? 'Reading files and extracting transactions — PDFs may take a moment each.'
+            : 'You can select multiple files at once (CSV, Excel, PDF).'}
+        </p>
       </div>
 
       {/* Result */}
@@ -192,12 +192,31 @@ export function Import(): React.ReactElement {
 
       {state === 'done' && result && !result.error && (
         <div style={{ background: '#d1fae5', border: '1px solid #6ee7b7', borderRadius: 10, padding: '16px 20px' }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: '#065f46', marginBottom: 10 }}>Import complete</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: '#065f46', marginBottom: 10 }}>
+            Import complete{(result.fileCount ?? 1) > 1 ? ` — ${result.fileCount} files` : ''}
+          </div>
           <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginBottom: 12 }}>
-            <StatBadge label="Extracted" value={result.inserted ?? 0} color="#065f46" />
+            <StatBadge label="New transactions" value={result.inserted ?? 0} color="#065f46" />
             {(result.duplicates ?? 0) > 0 && <StatBadge label="Duplicates skipped" value={result.duplicates ?? 0} color="#92400e" />}
             {(result.errors?.length ?? 0) > 0 && <StatBadge label="Errors" value={result.errors?.length ?? 0} color="#7f1d1d" />}
           </div>
+
+          {result.fileResults && result.fileResults.length > 1 && (
+            <div style={{ marginBottom: 12 }}>
+              {result.fileResults.map((fr) => (
+                <div key={fr.file} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: '1px solid #a7f3d0', fontSize: 13 }}>
+                  <span style={{ flex: 1, color: '#065f46', fontWeight: 500 }}>{fr.file}</span>
+                  {fr.error
+                    ? <span style={{ color: '#7f1d1d' }}>{fr.error}</span>
+                    : <>
+                        <span style={{ color: '#065f46' }}>{fr.inserted} new</span>
+                        {fr.duplicates > 0 && <span style={{ color: '#92400e' }}>{fr.duplicates} dupes</span>}
+                      </>
+                  }
+                </div>
+              ))}
+            </div>
+          )}
 
           {result.documentWarnings && result.documentWarnings.length > 0 && (
             <div style={{ background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 6, padding: '8px 12px', marginBottom: 10 }}>

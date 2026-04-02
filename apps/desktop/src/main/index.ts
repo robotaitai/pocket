@@ -354,49 +354,69 @@ async function createWindow(): Promise<void> {
     const provider = createProvider({ providerType: config.mode === 'connected' ? config.providerType : 'local', apiKey: apiKey ?? undefined });
 
     const { filePaths, canceled } = await dialog.showOpenDialog({
-      title: 'Import financial file',
+      title: 'Import financial files',
       filters: [
         { name: 'Financial files', extensions: ['csv', 'xlsx', 'xls', 'pdf'] },
         { name: 'CSV', extensions: ['csv'] },
         { name: 'Excel', extensions: ['xlsx', 'xls'] },
         { name: 'PDF', extensions: ['pdf'] },
       ],
-      properties: ['openFile'],
+      properties: ['openFile', 'multiSelections'],
     });
     if (canceled || filePaths.length === 0) return { canceled: true };
 
-    const filePath = filePaths[0]!;
-
-    // Use a fallback account — user can choose in Settings; default to first account
     const firstAccount = db.prepare<[], { id: string }>('SELECT id FROM accounts LIMIT 1').get();
     if (!firstAccount) return { error: 'No accounts configured. Add an account before importing files.' };
 
-    const extractionResult = await extractFile({
-      filePath,
-      accountId: firstAccount.id,
-      provider,
-      defaultCurrency: 'ILS',
-    });
+    let totalInserted = 0;
+    let totalDuplicates = 0;
+    const allErrors: string[] = [];
+    const allWarnings: string[] = [];
+    const fileResults: Array<{ file: string; inserted: number; duplicates: number; errors: string[]; error?: string }> = [];
 
-    if (extractionResult.error) return { error: extractionResult.error };
-    if (extractionResult.records.length === 0) return { error: 'No transactions found in the file.' };
+    for (const filePath of filePaths) {
+      const fileName = path.basename(filePath);
+      const extractionResult = await extractFile({
+        filePath,
+        accountId: firstAccount.id,
+        provider,
+        defaultCurrency: 'ILS',
+      });
 
-    const ingestion = ingestExtractedRecords(db, extractionResult.records, {
-      sourceType: extractionResult.sourceType,
-      extractionMethod: extractionResult.sourceType === 'pdf' ? 'agent' : 'structured-parse',
-      sourceFile: filePath,
-      accountId: firstAccount.id,
-      providerType: config.mode === 'connected' ? config.providerType : 'local',
-      overallConfidence: extractionResult.overallConfidence,
-    });
+      if (extractionResult.error) {
+        fileResults.push({ file: fileName, inserted: 0, duplicates: 0, errors: [], error: extractionResult.error });
+        allErrors.push(`${fileName}: ${extractionResult.error}`);
+        continue;
+      }
+      if (extractionResult.records.length === 0) {
+        fileResults.push({ file: fileName, inserted: 0, duplicates: 0, errors: [], error: 'No transactions found' });
+        allErrors.push(`${fileName}: No transactions found`);
+        continue;
+      }
+
+      const ingestion = ingestExtractedRecords(db, extractionResult.records, {
+        sourceType: extractionResult.sourceType,
+        extractionMethod: extractionResult.sourceType === 'pdf' ? 'agent' : 'structured-parse',
+        sourceFile: filePath,
+        accountId: firstAccount.id,
+        providerType: config.mode === 'connected' ? config.providerType : 'local',
+        overallConfidence: extractionResult.overallConfidence,
+      });
+
+      totalInserted += ingestion.inserted;
+      totalDuplicates += ingestion.duplicates;
+      allErrors.push(...ingestion.errors.map((e) => `${fileName}: ${e}`));
+      allWarnings.push(...extractionResult.documentWarnings.map((w) => `${fileName}: ${w}`));
+      fileResults.push({ file: fileName, inserted: ingestion.inserted, duplicates: ingestion.duplicates, errors: ingestion.errors });
+    }
 
     return {
-      batchId: ingestion.batchId,
-      inserted: ingestion.inserted,
-      duplicates: ingestion.duplicates,
-      errors: ingestion.errors,
-      documentWarnings: extractionResult.documentWarnings,
-      sourceType: extractionResult.sourceType,
+      inserted: totalInserted,
+      duplicates: totalDuplicates,
+      errors: allErrors,
+      documentWarnings: allWarnings,
+      fileResults,
+      fileCount: filePaths.length,
     };
   });
 

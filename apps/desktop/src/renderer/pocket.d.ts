@@ -193,15 +193,23 @@ export interface CredentialTestResult {
   accountsFound?: number;
 }
 
+export interface FileImportFileResult {
+  file: string;
+  inserted: number;
+  duplicates: number;
+  errors: string[];
+  error?: string;
+}
+
 export interface FileImportResult {
   canceled?: boolean;
   error?: string;
-  batchId?: string;
   inserted?: number;
   duplicates?: number;
   errors?: string[];
   documentWarnings?: string[];
-  sourceType?: string;
+  fileResults?: FileImportFileResult[];
+  fileCount?: number;
 }
 
 export interface PocketApi {
