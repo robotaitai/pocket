@@ -23,7 +23,7 @@ export class GeminiProvider implements AgentProvider {
 
   constructor(
     private readonly apiKey: string,
-    model = 'gemini-2.0-flash',
+    model = 'gemini-2.5-flash',
   ) {
     this.model = model;
   }

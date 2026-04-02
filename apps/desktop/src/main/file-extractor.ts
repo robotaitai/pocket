@@ -198,7 +198,12 @@ async function extractPdf(opts: ExtractionOptions): Promise<FileExtractionResult
   const documentText = extractPdfText(buf);
 
   // ── 1. Native parsers (no AI required) ──
-  if (isCalPdf(documentText)) {
+  // Only attempt when the text extractor actually produced content.
+  // CAL PDFs with compressed streams (FlateDecode) return the fallback
+  // placeholder — in that case the native regex parser has nothing to work
+  // with and Gemini multimodal (step 2) is the right path.
+  const textExtracted = !documentText.startsWith('[PDF text extraction unavailable');
+  if (textExtracted && isCalPdf(documentText, fileName)) {
     // Use a stable virtual account dedicated to CAL PDF imports so that
     // transactions from different monthly PDFs always get the same accountId
     // and therefore the same deterministic transactionId hash.
@@ -215,8 +220,7 @@ async function extractPdf(opts: ExtractionOptions): Promise<FileExtractionResult
         documentWarnings: [],
       };
     }
-    // Native parser found no rows — likely a font-encoded PDF where the text
-    // extractor produced garbled output. Fall through to AI with raw bytes.
+    // Native parser found no rows — fall through to AI with raw bytes.
   }
 
   // ── 2. AI provider fallback ──
@@ -253,9 +257,16 @@ async function extractPdf(opts: ExtractionOptions): Promise<FileExtractionResult
       };
     }
 
+    // For CAL PDFs detected by filename, use the stable virtual account ID
+    // so that AI-extracted transactions get the same accountId as native-parsed
+    // ones, enabling correct hash-based deduplication across imports.
+    const aiAccountId = (isCalPdf(documentText, fileName) && opts.db)
+      ? upsertPdfAccount(opts.db, 'cal', 'CAL Credit Card', 'card')
+      : opts.accountId;
+
     const records = result.transactions.map((t) =>
       toRawImportRecord(t, {
-        accountId: opts.accountId,
+        accountId: aiAccountId,
         sourceType: 'pdf',
         sourceFile: fileName,
         providerType: opts.provider.type,
@@ -306,10 +317,17 @@ function upsertPdfAccount(
 
 /**
  * Detect a CAL (כאל) or Diners credit card PDF.
- * Matches the text-layer content extracted by extractPdfText.
+ *
+ * Checks both the extracted text layer and the original filename, because
+ * CAL PDFs use compressed streams (FlateDecode) — the text layer is not
+ * accessible via our basic BT/ET extractor and so the text string will be
+ * the fallback placeholder. The filename always contains "כאל" or "cal"
+ * in the standard monthly statement format.
  */
-function isCalPdf(text: string): boolean {
-  return /כאל|Cal\b|diners|Diners|כרטיסי אשראי ישראל/i.test(text);
+function isCalPdf(text: string, fileName = ''): boolean {
+  const textMatch = /כאל|Cal\b|diners|Diners|כרטיסי אשראי ישראל/i.test(text);
+  const nameMatch = /כאל|cal|diners/i.test(fileName);
+  return textMatch || nameMatch;
 }
 
 /**
@@ -429,7 +447,7 @@ function extractPdfText(buf: Buffer): string {
 
   const textChunks: string[] = [];
   const btEtPattern = /BT([\s\S]*?)ET/g;
-  let m = btEtPattern.exec(raw);
+  let m: RegExpExecArray | null = btEtPattern.exec(raw);
   while (m) {
     const block = m[1] ?? '';
 
