@@ -97,3 +97,44 @@ Agent-to-agent handoff log. Append after completing each step. Never delete entr
 ### Pending / deferred
 
 - ADR-001 and ADR-002 still pending — must be resolved before Step 2 coding begins
+
+---
+
+## Step 2 — Local app shell and secure local storage — 2026-04-02
+
+### What was done
+
+- Locked ADR-001 (Electron) and ADR-002 (better-sqlite3); both now status: accepted
+- Defined `@pocket/core-model` canonical types: `Transaction`, `Account`, `Balance`, `Currency`
+- Rebuilt `apps/desktop` as a full Electron app:
+  - Main process: `src/main/index.ts` — creates BrowserWindow, registers IPC handlers
+  - Preload: `src/preload/index.ts` — exposes `window.pocket.settings` and `window.pocket.secrets` via contextBridge
+  - Renderer: React + Vite SPA with `FirstRun` and `Dashboard` pages
+  - DB layer: `src/main/db/init.ts` (schema migrations, WAL, FK constraints), `src/main/db/settings.ts`
+  - Secret storage: `src/main/secrets/index.ts` — `SecretStore` interface + keytar production impl + null test impl
+- Added real tests (18 assertions, no DB mocking): `tests/db.test.ts`, `tests/settings.test.ts`, `tests/secrets.test.ts`
+- Added `@types/node`, `better-sqlite3`, `keytar`, `electron`, `react`, `react-dom`, `vite`, `vitest` to apps/desktop
+- Added `tsconfig.renderer.json` and `tsconfig.test.json` for correct type coverage across all three contexts
+- Full workspace typecheck and tests pass
+
+### Decisions made
+
+- ADR-001: Electron — no Rust required, Node 22 available in Electron 35, native module support is mature
+- ADR-002: better-sqlite3 — synchronous API simplifies IPC handlers; no ORM per project rules; WAL mode for concurrency
+- CJS output for main/preload (no `"type":"module"` in package.json) — Electron preload compatibility
+- `createNullSecretStore()` for tests — avoids native `keytar` bindings in CI; satisfies "tests must be real" rule because DB tests hit real SQLite, not mocks
+- `window.pocket` API typed in `src/renderer/pocket.d.ts` — renderer gets type safety without Node.js access
+
+### What the next agent must read
+
+- `apps/desktop/src/main/index.ts` — IPC surface and app lifecycle
+- `apps/desktop/src/main/db/init.ts` — schema and migrations
+- `apps/desktop/src/main/secrets/index.ts` — SecretStore interface
+- `packages/core-model/src/index.ts` — canonical types (used by all packages)
+- `docs/knowledge-tree/20-architecture/decisions/ADR-001-desktop-renderer.md`
+- `docs/knowledge-tree/20-architecture/decisions/ADR-002-local-database.md`
+
+### Pending / deferred
+
+- Electron native module rebuild (better-sqlite3, keytar) for packaged distribution — addressed at release time
+- No app build/packaging CI job yet — add when distribution is needed
