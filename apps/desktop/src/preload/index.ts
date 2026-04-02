@@ -50,6 +50,17 @@ contextBridge.exposeInMainWorld('pocket', {
     clearKey: (providerType: string) => ipcRenderer.invoke('provider:clearKey', providerType),
     testConnection: () => ipcRenderer.invoke('provider:testConnection'),
   },
+  credentials: {
+    listConnectors: () => ipcRenderer.invoke('credentials:listConnectors'),
+    setField: (connectorId: string, field: string, value: string) =>
+      ipcRenderer.invoke('credentials:setField', connectorId, field, value),
+    getFieldStatus: (connectorId: string, field: string) =>
+      ipcRenderer.invoke('credentials:getFieldStatus', connectorId, field),
+    clearField: (connectorId: string, field: string) =>
+      ipcRenderer.invoke('credentials:clearField', connectorId, field),
+    testConnection: (connectorId: string) =>
+      ipcRenderer.invoke('credentials:testConnection', connectorId),
+  },
   fileImport: {
     pickAndExtract: () => ipcRenderer.invoke('fileImport:pickAndExtract'),
   },

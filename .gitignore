@@ -13,6 +13,11 @@ Thumbs.db
 .env.*
 secrets.enc.json
 
+# developer-only local files (smoke test credentials, dev overrides)
+# see .local/README.md for what belongs here
+.local/secrets.json
+.local/*.db
+
 # local databases and exports
 *.db
 *.sqlite

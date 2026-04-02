@@ -63,3 +63,25 @@ Key invariants:
 - Ambiguous extracted fields carry `warnings[]` and `confidenceScore` — not silently guessed
 - `connectors-israel` never produces `Transaction` directly — only `RawImportRecord[]`
 - DB schema is versioned; migrations are forward-only and idempotent (schema v2 as of step 4)
+
+## Storage Layers
+
+Three separate storage layers — they must never be mixed:
+
+| Layer | Holds | Implementation | Location |
+|---|---|---|---|
+| **Settings** | Non-secret app config (mode, flags, preferences) | SQLite `settings` table | `userData/pocket.db` |
+| **Data** | Transactions, accounts, import batches, merchant rules | SQLite core tables | `userData/pocket.db` |
+| **Secrets** | Bank credentials, API keys, tokens | OS keychain (keytar) | OS-managed |
+
+Account name convention in keychain: `provider:<type>` or `connector:<id>:<field>`.
+Service name: always `pocket`.
+Dev-only fallback: `.local/secrets.json` (gitignored, requires `POCKET_DEV_SECRETS=1`).
+
+What must NOT appear in each layer:
+- Settings table: no API keys, no passwords, no tokens
+- Data DB: no credentials, no API keys
+- Keychain: no transaction amounts, no account IDs, no batch data
+
+See `apps/desktop/src/main/secrets/keys.ts` for canonical account name helpers.
+See `apps/desktop/src/main/secrets/redact.ts` for log redaction utilities.

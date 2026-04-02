@@ -171,6 +171,19 @@ export interface ConnectionTestResult {
   local?: boolean;
 }
 
+export interface ConnectorDescriptor {
+  id: string;
+  name: string;
+  institutionType: 'bank' | 'card';
+  credentialFields: string[];
+}
+
+export interface CredentialTestResult {
+  ok: boolean;
+  error?: string;
+  accountsFound?: number;
+}
+
 export interface FileImportResult {
   canceled?: boolean;
   error?: string;
@@ -221,6 +234,13 @@ export interface PocketApi {
     setKey(providerType: ProviderType, apiKey: string): Promise<void>;
     clearKey(providerType: ProviderType): Promise<void>;
     testConnection(): Promise<ConnectionTestResult>;
+  };
+  credentials: {
+    listConnectors(): Promise<ConnectorDescriptor[]>;
+    setField(connectorId: string, field: string, value: string): Promise<void>;
+    getFieldStatus(connectorId: string, field: string): Promise<{ set: boolean }>;
+    clearField(connectorId: string, field: string): Promise<void>;
+    testConnection(connectorId: string): Promise<CredentialTestResult>;
   };
   fileImport: {
     pickAndExtract(): Promise<FileImportResult>;

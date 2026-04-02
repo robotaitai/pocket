@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import type { ProviderConfig, ProviderType, ConnectionTestResult } from '../pocket.js';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import type { ProviderConfig, ProviderType, ConnectionTestResult, ConnectorDescriptor, CredentialTestResult } from '../pocket.js';
 
 const PROVIDER_LABELS: Record<ProviderType, string> = {
   openai: 'OpenAI (GPT)',
@@ -23,12 +23,39 @@ export function Settings(): React.ReactElement {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
+  // Bank credentials state
+  const [connectors, setConnectors] = useState<ConnectorDescriptor[]>([]);
+  const [credValues, setCredValues] = useState<Record<string, string>>({}); // connectorId:field → value
+  const [credStatus, setCredStatus] = useState<Record<string, boolean>>({}); // connectorId:field → isSet
+  const [connTestResults, setConnTestResults] = useState<Record<string, CredentialTestResult>>({});
+  const [connTestLoading, setConnTestLoading] = useState<Record<string, boolean>>({});
+  const credSavedRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
   const loadConfig = useCallback(async () => {
     const c = await window.pocket.provider.getConfig();
     setConfig(c);
   }, []);
 
-  useEffect(() => { void loadConfig(); }, [loadConfig]);
+  const loadConnectors = useCallback(async () => {
+    const list = await window.pocket.credentials.listConnectors();
+    setConnectors(list);
+    // Load set/unset status for each field
+    const status: Record<string, boolean> = {};
+    await Promise.all(
+      list.flatMap((conn) =>
+        conn.credentialFields.map(async (field) => {
+          const { set } = await window.pocket.credentials.getFieldStatus(conn.id, field);
+          status[`${conn.id}:${field}`] = set;
+        }),
+      ),
+    );
+    setCredStatus(status);
+  }, []);
+
+  useEffect(() => {
+    void loadConfig();
+    void loadConnectors();
+  }, [loadConfig, loadConnectors]);
 
   const handleModeChange = async (mode: 'local' | 'connected') => {
     await window.pocket.provider.setConfig({ mode });
@@ -65,6 +92,32 @@ export function Settings(): React.ReactElement {
     const result = await window.pocket.provider.testConnection();
     setTestResult(result);
     setTestLoading(false);
+  };
+
+  // Connector credential handlers
+  const handleCredSave = async (connectorId: string, field: string) => {
+    const key = `${connectorId}:${field}`;
+    const value = credValues[key];
+    if (!value?.trim()) return;
+    await window.pocket.credentials.setField(connectorId, field, value.trim());
+    setCredValues((v) => ({ ...v, [key]: '' }));
+    setCredStatus((s) => ({ ...s, [key]: true }));
+    setConnTestResults((r) => { const next = { ...r }; delete next[connectorId]; return next; });
+  };
+
+  const handleCredClear = async (connectorId: string, field: string) => {
+    const key = `${connectorId}:${field}`;
+    await window.pocket.credentials.clearField(connectorId, field);
+    setCredStatus((s) => ({ ...s, [key]: false }));
+    setConnTestResults((r) => { const next = { ...r }; delete next[connectorId]; return next; });
+  };
+
+  const handleConnTest = async (connectorId: string) => {
+    setConnTestLoading((l) => ({ ...l, [connectorId]: true }));
+    setConnTestResults((r) => { const next = { ...r }; delete next[connectorId]; return next; });
+    const result = await window.pocket.credentials.testConnection(connectorId);
+    setConnTestResults((r) => ({ ...r, [connectorId]: result }));
+    setConnTestLoading((l) => ({ ...l, [connectorId]: false }));
   };
 
   const handleToggle = async (field: 'chatEnhancementEnabled' | 'merchantSuggestionsEnabled') => {
@@ -206,16 +259,94 @@ export function Settings(): React.ReactElement {
         </Section>
       )}
 
+      {/* Bank credentials section */}
+      <Section title="Bank and Card Credentials">
+        <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>
+          Credentials are stored in the OS keychain (macOS Keychain, Windows Credential Manager, or libsecret on Linux). They never leave your device and are not stored in any database or config file.
+        </p>
+        {connectors.map((conn) => {
+          const testResult = connTestResults[conn.id];
+          const testLoading = connTestLoading[conn.id] ?? false;
+          const allSet = conn.credentialFields.every((f) => credStatus[`${conn.id}:${f}`]);
+          return (
+            <div key={conn.id} style={{ marginBottom: 20, paddingBottom: 20, borderBottom: '1px solid #f3f4f6' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                <span style={{ fontSize: 14, fontWeight: 700, color: '#111827' }}>{conn.name}</span>
+                <span style={{ fontSize: 10, color: '#6b7280', background: '#f3f4f6', padding: '1px 7px', borderRadius: 8 }}>
+                  {conn.institutionType}
+                </span>
+                {allSet && (
+                  <span style={{ fontSize: 10, color: '#065f46', background: '#d1fae5', padding: '1px 7px', borderRadius: 8 }}>
+                    credentials set
+                  </span>
+                )}
+              </div>
+              {conn.credentialFields.map((field) => {
+                const key = `${conn.id}:${field}`;
+                const isSet = credStatus[key] ?? false;
+                return (
+                  <div key={field} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', width: 120, flexShrink: 0 }}>
+                      {field}
+                      {isSet && <span style={{ marginLeft: 4, color: '#059669' }}>*</span>}
+                    </label>
+                    <input
+                      type="password"
+                      placeholder={isSet ? '(already set — paste to update)' : `Enter ${field}...`}
+                      value={credValues[key] ?? ''}
+                      onChange={(e) => setCredValues((v) => ({ ...v, [key]: e.target.value }))}
+                      aria-label={`${conn.name} ${field}`}
+                      style={{ flex: 1, border: '1px solid #d1d5db', borderRadius: 6, padding: '6px 9px', fontSize: 13 }}
+                    />
+                    <button
+                      onClick={() => void handleCredSave(conn.id, field)}
+                      disabled={!(credValues[key]?.trim())}
+                      style={{ padding: '5px 12px', background: '#1d4ed8', color: '#fff', border: 'none', borderRadius: 6, cursor: credValues[key]?.trim() ? 'pointer' : 'default', fontSize: 12, fontWeight: 600, opacity: credValues[key]?.trim() ? 1 : 0.4 }}
+                    >
+                      Save
+                    </button>
+                    {isSet && (
+                      <button
+                        onClick={() => void handleCredClear(conn.id, field)}
+                        style={{ padding: '5px 10px', border: '1px solid #fca5a5', background: '#fff', color: '#dc2626', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+              <div style={{ marginTop: 8 }}>
+                <button
+                  onClick={() => void handleConnTest(conn.id)}
+                  disabled={!allSet || testLoading}
+                  style={{ padding: '6px 14px', border: '1px solid #d1d5db', background: '#fff', borderRadius: 6, cursor: allSet && !testLoading ? 'pointer' : 'default', fontSize: 12, opacity: allSet ? 1 : 0.5 }}
+                >
+                  {testLoading ? 'Testing...' : 'Test Connection'}
+                </button>
+                {testResult && (
+                  <span style={{ marginLeft: 10, fontSize: 12, color: testResult.ok ? '#065f46' : '#7f1d1d' }}>
+                    {testResult.ok
+                      ? `Connected (${testResult.accountsFound ?? 0} accounts found)`
+                      : `Failed: ${testResult.error ?? 'Unknown error'}`}
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </Section>
+
       {/* Privacy section */}
       <Section title="Privacy Boundaries">
         <PrivacyBoundary
-          title="What is NEVER sent to any provider"
+          title="What is NEVER sent anywhere"
           items={[
+            'Bank credentials, passwords, or ID numbers (stored in OS keychain only)',
             'Account IDs, account numbers, or IBAN',
             'Account balances',
             'Transaction IDs or raw DB query results',
             'Any user-identifying information',
-            'Bank credentials or scraper passwords',
           ]}
           color="#fee2e2"
           borderColor="#fca5a5"

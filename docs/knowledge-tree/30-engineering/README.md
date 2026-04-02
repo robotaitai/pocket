@@ -48,3 +48,58 @@ pnpm lint:md       # Markdown lint across all docs
 - The scraper submodule is pinned to a specific commit SHA
 - Update it intentionally via a dedicated PR
 - Never modify files inside `external/` from this repo
+
+## Secret Handling
+
+### Storage model
+
+| What | Where | Never in |
+|---|---|---|
+| Bank credentials | OS keychain | `.env`, DB, config files |
+| Provider API keys | OS keychain | `.env`, DB, settings table |
+| App preferences | SQLite `settings` table | Keychain |
+| Transaction data | SQLite core tables | Keychain |
+
+### Naming convention
+
+All keychain entries use service `pocket` and structured account names:
+- `provider:<type>` — AI provider API key (openai, anthropic, gemini)
+- `connector:<id>:<field>` — scraper credential (e.g. `connector:hapoalim:userCode`)
+
+See `apps/desktop/src/main/secrets/keys.ts`.
+
+### Developer workflow
+
+For local smoke tests, create `.local/secrets.json` (gitignored) with dev credentials:
+
+```json
+{
+  "pocket:provider:openai": "sk-...",
+  "pocket:connector:hapoalim:userCode": "myuser",
+  "pocket:connector:hapoalim:password": "mypassword"
+}
+```
+
+Activate with `POCKET_DEV_SECRETS=1`. Never used in packaged builds.
+Implementation: `apps/desktop/src/main/secrets/dev-local.ts`.
+
+### Production user workflow
+
+Real users enter credentials via the Settings UI, which stores them in the OS keychain.
+No `.env` file is ever required for end users.
+
+### Log redaction
+
+Use `redactSecrets(message, [secret1, secret2])` from `apps/desktop/src/main/secrets/redact.ts`
+before including any user-supplied value in a log or error message.
+Auth error messages from connectors must never expose the credential value.
+
+### .env policy
+
+`.env` may be used ONLY for developer config that is not a credential:
+- `POCKET_DEV_SECRETS=1` — activate the dev-local secret store
+- `NODE_ENV=test` — set by test runners automatically
+- Never: API keys, passwords, or tokens
+
+`.env.local` (gitignored) is an acceptable alternative for developers who prefer
+not to set env vars in their shell profile.

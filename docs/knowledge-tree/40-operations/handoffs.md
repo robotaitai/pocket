@@ -381,3 +381,43 @@ Agent-to-agent handoff log. Append after completing each step. Never delete entr
 - Auto-update not configured — electron-updater would require a hosting endpoint
 - Connector (scraper) import UI still not wired to Dashboard — can be triggered via dev tools but no UI button exists
 - PDF extraction quality depends entirely on the provider and document text layer quality
+
+## Step 8 — Secret handling, dev workflow, and credential management — 2026-04-02
+
+### What was done
+
+- Created `apps/desktop/src/main/secrets/keys.ts` — canonical account name helpers and naming convention for all secret classes (`provider:<type>`, `connector:<id>:<field>`)
+- Created `apps/desktop/src/main/secrets/redact.ts` — `redactSecrets`, `formatError`, `markSecret` for safe logging
+- Created `apps/desktop/src/main/secrets/dev-local.ts` — `LocalDevSecretStore` backed by `.local/secrets.json`, activated by `POCKET_DEV_SECRETS=1` in non-packaged builds only
+- Added `.local/` to `.gitignore` with entries for `secrets.json` and `*.db`
+- Created `.local/.gitkeep` so the directory is tracked but empty
+- Added 5 new IPC handlers: `credentials:listConnectors`, `credentials:setField`, `credentials:getFieldStatus`, `credentials:clearField`, `credentials:testConnection`
+- Extended `preload/index.ts` and `pocket.d.ts` with the `credentials` API and `ConnectorDescriptor`/`CredentialTestResult` types
+- Extended Settings page with a "Bank and Card Credentials" section: per-connector field entry, set/clear per field, test connection button, status indicators
+- Removed inline `POCKET_SERVICE = 'pocket'` constant from `main/index.ts` — now imported from `keys.ts`
+- Replaced `providerKeychainAccount` from `db/providers.ts` with `providerKeyAccount` from `keys.ts` everywhere
+- Added 30 new tests in `tests/secrets.extended.test.ts`: CRUD lifecycle, naming convention, secrets-vs-settings separation, dev-local store persistence, redaction correctness
+- Updated knowledge tree: storage layers in `20-architecture/README.md`, security and dev workflow in `30-engineering/README.md`, UX principles in `10-product/README.md`
+
+### Decisions made
+
+- **Single service name `pocket`** — all secrets under one service for easy keychain management; structured account names provide the namespacing
+- **No list/enumerate operation** — `SecretStore` is intentionally write-biased; listing secrets is not exposed to reduce enumeration risk
+- **Auth errors never expose raw values** — `testConnection` returns human-readable messages, not scraper stack traces
+- **`shouldUseDevLocalStore` checks `app.isPackaged`** — impossible to activate in production, no matter what env var is set
+- **Short secrets (< 4 chars) not redacted** — avoids over-redaction of common short strings in error messages
+
+### What the next agent must read
+
+- `apps/desktop/src/main/secrets/keys.ts` — naming convention
+- `apps/desktop/src/main/secrets/redact.ts` — log safety
+- `apps/desktop/src/main/secrets/dev-local.ts` — dev workflow
+- `apps/desktop/src/main/index.ts` — `credentials:*` IPC handlers
+- `docs/knowledge-tree/30-engineering/README.md` — security section
+- `docs/knowledge-tree/20-architecture/README.md` — storage layers section
+
+### Pending / deferred
+
+- Connector credential IPC exposes a `testConnection` that runs a real scraper — it will fail in tests and in dev without real credentials. A mock/stub path for CI should be added when CI runs connectors.
+- Only `HapoalimConnector` and `MaxConnector` are registered in the IPC handler. Adding new connectors requires updating the `CONNECTORS` array in `main/index.ts`.
+- `.local/secrets.json` format is plain JSON — if a developer needs a more structured dev config, consider a TOML or YAML format in the future.
