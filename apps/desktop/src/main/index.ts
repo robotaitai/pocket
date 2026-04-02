@@ -28,6 +28,7 @@ import {
   getBatchHealthRows,
   searchTransactions,
   getTransactionsForExport,
+  getCategoryBreakdown,
   type SearchFilter,
 } from './db/insights.js';
 import { executeChat } from './chat-executor.js';
@@ -111,12 +112,21 @@ async function createWindow(): Promise<void> {
   });
 
   // Insights — period summaries
-  ipcMain.handle('insights:getSummary', (_e, periodKey: string) => {
-    const range = periodKey === 'last-month' ? lastMonth()
-      : periodKey === 'last-3-months' ? lastNMonths(3)
+  function periodRange(key: string) {
+    return key === 'last-month' ? lastMonth()
+      : key === 'last-3-months' ? lastNMonths(3)
       : currentMonth();
+  }
+
+  ipcMain.handle('insights:getSummary', (_e, periodKey: string) => {
+    const range = periodRange(periodKey);
     const txns = getAcceptedTransactions(db, range);
     return summarizePeriod(txns, range);
+  });
+
+  ipcMain.handle('insights:getCategoryBreakdown', (_e, periodKey: string) => {
+    const range = periodRange(periodKey);
+    return getCategoryBreakdown(db, range.start, range.end);
   });
 
   ipcMain.handle('insights:getRecurring', () => {

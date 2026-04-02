@@ -282,3 +282,59 @@ export function getTransactionsForExport(
     reviewStatus: r.review_status,
   }));
 }
+
+// ── Category breakdown ─────────────────────────────────────────────────────────
+
+export interface CategoryBreakdownItem {
+  category: string;
+  total: number;
+  count: number;
+}
+
+/**
+ * Aggregate accepted expense transactions by category for a date range.
+ * Excludes accounting transfers (credit_card_payment, transfer, investments).
+ * Only negative-amount transactions (expenses) are included.
+ * Income is returned separately so the caller can render both if needed.
+ */
+export function getCategoryBreakdown(
+  db: Database.Database,
+  start: string,
+  end: string,
+): { expenses: CategoryBreakdownItem[]; income: CategoryBreakdownItem[] } {
+  const EXCLUDED = `('credit_card_payment', 'transfer', 'investments')`;
+
+  const rows = db.prepare<[string, string], {
+    cat: string;
+    total: number;
+    count: number;
+    is_expense: number;
+  }>(`
+    SELECT
+      COALESCE(user_category, category, 'other') AS cat,
+      SUM(ABS(amount))                            AS total,
+      COUNT(*)                                    AS count,
+      CASE WHEN amount < 0 THEN 1 ELSE 0 END      AS is_expense
+    FROM transactions
+    WHERE review_status = 'accepted'
+      AND date >= ?
+      AND date <  ?
+      AND COALESCE(user_category, category, 'other') NOT IN ${EXCLUDED}
+    GROUP BY cat, is_expense
+    ORDER BY total DESC
+  `).all(start, end);
+
+  const expenses = rows.filter((r) => r.is_expense === 1).map((r) => ({
+    category: r.cat,
+    total: r.total,
+    count: r.count,
+  }));
+
+  const income = rows.filter((r) => r.is_expense === 0).map((r) => ({
+    category: r.cat,
+    total: r.total,
+    count: r.count,
+  }));
+
+  return { expenses, income };
+}

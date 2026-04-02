@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import type { ReviewTransaction } from '../pocket.js';
-import { CATEGORY_LABELS } from '../constants.js';
+import { CATEGORY_LABELS, CATEGORY_COLORS, CATEGORY_BG_COLORS } from '../constants.js';
 import { SourceBadge } from './SourceBadge.js';
 import { ConfidenceIndicator } from './ConfidenceIndicator.js';
 import { QuickTag } from './QuickTag.js';
@@ -175,8 +175,8 @@ export function TransactionRow({
               padding: '2px 8px',
               borderRadius: 12,
               fontSize: 12,
-              background: txn.userCategory ? '#ede9fe' : '#f3f4f6',
-              color: txn.userCategory ? '#5b21b6' : '#374151',
+              background: txn.effectiveCategory ? (CATEGORY_BG_COLORS[txn.effectiveCategory] ?? '#f3f4f6') : '#f3f4f6',
+              color: txn.effectiveCategory ? (CATEGORY_COLORS[txn.effectiveCategory] ?? '#374151') : '#374151',
               fontWeight: 500,
             }}>
               {categoryLabel}

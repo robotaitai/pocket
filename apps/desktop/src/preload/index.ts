@@ -37,6 +37,7 @@ contextBridge.exposeInMainWorld('pocket', {
   },
   insights: {
     getSummary: (periodKey: string) => ipcRenderer.invoke('insights:getSummary', periodKey),
+    getCategoryBreakdown: (periodKey: string) => ipcRenderer.invoke('insights:getCategoryBreakdown', periodKey),
     getRecurring: () => ipcRenderer.invoke('insights:getRecurring'),
     getMerchants: (limit: number) => ipcRenderer.invoke('insights:getMerchants', limit),
     getNewMerchants: () => ipcRenderer.invoke('insights:getNewMerchants'),

@@ -113,6 +113,17 @@ export interface ImportHealthReport {
   sourceTypeSummary: Record<string, { batchCount: number; transactionCount: number; lastImport: string | null }>;
 }
 
+export interface CategoryBreakdownItem {
+  category: string;
+  total: number;
+  count: number;
+}
+
+export interface CategoryBreakdown {
+  expenses: CategoryBreakdownItem[];
+  income: CategoryBreakdownItem[];
+}
+
 export interface ChatAnswer {
   text: string;
   sources: Array<{
@@ -240,6 +251,7 @@ export interface PocketApi {
   };
   insights: {
     getSummary(periodKey: string): Promise<PeriodSummary>;
+    getCategoryBreakdown(periodKey: string): Promise<CategoryBreakdown>;
     getRecurring(): Promise<RecurringPayment[]>;
     getMerchants(limit: number): Promise<MerchantSummary[]>;
     getNewMerchants(): Promise<MerchantSummary[]>;

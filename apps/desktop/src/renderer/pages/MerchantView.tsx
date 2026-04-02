@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import type { MerchantSummary } from '../pocket.js';
 import { formatCurrency, formatDate } from '../utils/format.js';
-import { CATEGORIES, CATEGORY_LABELS } from '../constants.js';
+import { CATEGORIES, CATEGORY_LABELS, CATEGORY_COLORS, CATEGORY_BG_COLORS } from '../constants.js';
 
 type Tab = 'all' | 'new' | 'suspicious';
 

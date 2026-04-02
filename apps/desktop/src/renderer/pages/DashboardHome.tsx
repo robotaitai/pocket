@@ -1,24 +1,28 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import type { PeriodSummary, RecurringPayment, MerchantSummary } from '../pocket.js';
+import type { PeriodSummary, RecurringPayment, MerchantSummary, CategoryBreakdown } from '../pocket.js';
 import { formatCurrency } from '../utils/format.js';
+import { PieChart } from '../components/PieChart.js';
 
 type PeriodKey = 'this-month' | 'last-month' | 'last-3-months';
 
 export function DashboardHome(): React.ReactElement {
   const [periodKey, setPeriodKey] = useState<PeriodKey>('this-month');
   const [summary, setSummary] = useState<PeriodSummary | null>(null);
+  const [breakdown, setBreakdown] = useState<CategoryBreakdown>({ expenses: [], income: [] });
   const [recurring, setRecurring] = useState<RecurringPayment[]>([]);
   const [merchants, setMerchants] = useState<MerchantSummary[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [s, r, m] = await Promise.all([
+    const [s, b, r, m] = await Promise.all([
       window.pocket.insights.getSummary(periodKey),
+      window.pocket.insights.getCategoryBreakdown(periodKey),
       window.pocket.insights.getRecurring(),
       window.pocket.insights.getMerchants(5),
     ]);
     setSummary(s);
+    setBreakdown(b);
     setRecurring(r.slice(0, 5));
     setMerchants(m);
     setLoading(false);
@@ -82,6 +86,16 @@ export function DashboardHome(): React.ReactElement {
               No accepted transactions for this period. Accept transactions in the Review tab to see data here.
             </div>
           )}
+
+          {/* Pie charts */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
+            <SectionCard title="Expenses by Category">
+              <PieChart items={breakdown.expenses} title="Expenses" />
+            </SectionCard>
+            <SectionCard title="Income by Category">
+              <PieChart items={breakdown.income} title="Income" />
+            </SectionCard>
+          </div>
 
           {/* Two-column layout */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
