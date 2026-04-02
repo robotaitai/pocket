@@ -159,4 +159,49 @@ describe('ingestExtractedRecords', () => {
     expect(second.inserted).toBe(0);
     expect(second.duplicates).toBe(first.inserted);
   });
+
+  it('cross-account content dedup skips transaction that already exists in another account', async () => {
+    // Set up a second account (simulating a card PDF account)
+    db.prepare(`
+      INSERT INTO accounts (id, institution, institution_type, account_number, type, currency)
+      VALUES ('acc-card', 'cal', 'card', 'pdf-import', 'credit', 'ILS')
+    `).run();
+
+    const csvPath = path.join(tmpDir, 'dedup.csv');
+    await writeFile(csvPath, SAMPLE_CSV);
+
+    const extractResult = await extractFile({
+      filePath: csvPath,
+      accountId: 'acc-test',
+      provider: new LocalOnlyProvider(),
+    });
+
+    // Ingest into the bank account first
+    const bankOpts = {
+      sourceType: 'csv' as const,
+      extractionMethod: 'structured-parse' as const,
+      sourceFile: csvPath,
+      accountId: 'acc-test',
+    };
+    const first = ingestExtractedRecords(db, extractResult.records, bankOpts);
+    expect(first.inserted).toBeGreaterThan(0);
+
+    // Mark them accepted so cross-account check triggers
+    const ids = db.prepare<[], { id: string }>('SELECT id FROM transactions WHERE account_id = ?')
+      .all('acc-test')
+      .map((r) => r.id);
+    db.prepare(`UPDATE transactions SET review_status = 'accepted' WHERE id IN (${ids.map(() => '?').join(',')})`)
+      .run(...ids);
+
+    // Now ingest the same records into the card account — should all be cross-account dupes
+    const cardOpts = {
+      sourceType: 'csv' as const,
+      extractionMethod: 'structured-parse' as const,
+      sourceFile: csvPath,
+      accountId: 'acc-card',
+    };
+    const second = ingestExtractedRecords(db, extractResult.records, cardOpts);
+    expect(second.inserted).toBe(0);
+    expect(second.duplicates).toBe(first.inserted);
+  });
 });

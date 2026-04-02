@@ -426,3 +426,37 @@ Agent-to-agent handoff log. Append after completing each step. Never delete entr
 - Connector credential IPC exposes a `testConnection` that runs a real scraper — it will fail in tests and in dev without real credentials. A mock/stub path for CI should be added when CI runs connectors.
 - Only `HapoalimConnector` and `MaxConnector` are registered in the IPC handler. Adding new connectors requires updating the `CONNECTORS` array in `main/index.ts`.
 - `.local/secrets.json` format is plain JSON — if a developer needs a more structured dev config, consider a TOML or YAML format in the future.
+
+---
+
+## Step 9 — Test coverage, data storage docs, and push — 2026-04-02
+
+### What was done
+
+- Clarified data storage locations:
+  - **SQLite database**: `~/Library/Application Support/@pocket/desktop/pocket.db`
+  - **Credentials and API keys**: macOS Keychain via `keytar` — never written to disk as plain text
+  - No financial data leaves the device
+- Added 13 new tests (135 total for `apps/desktop`, 289 across all packages) covering:
+  - `applyMerchantRulesToBatch` — four cases: happy path, no overwrite of existing category, batch isolation, no matching rule
+  - `possibleDuplicate` in `getTransactionsForReview` — three cases: no match, match in another account (true), match in same account (false)
+  - `getCategoryBreakdown` — five cases: expense grouping, transfer exclusion, income separation, pending exclusion, date range boundary
+  - Cross-account content dedup in `ingestExtractedRecords` — verifies transactions accepted in one account are treated as duplicates when the same (date, amount, description) arrives from another account
+
+### Decisions made
+
+- Tests use `:memory:` SQLite — real schema, no mocking at the database layer (per repo policy)
+- `getCategoryBreakdown` tests live in `tests/db.test.ts` alongside other insight query tests rather than a new file — keeps related DB layer tests together
+
+### What the next agent must read
+
+- `apps/desktop/tests/merchant-rules.test.ts` — `applyMerchantRulesToBatch` coverage
+- `apps/desktop/tests/review-queue.test.ts` — `possibleDuplicate` coverage
+- `apps/desktop/tests/db.test.ts` — `getCategoryBreakdown` coverage
+- `apps/desktop/tests/file-extractor.test.ts` — cross-account dedup coverage
+- `docs/knowledge-tree/30-engineering/README.md` — storage model (keychain + SQLite)
+
+### Pending / deferred
+
+- End-to-end UI tests for the redesigned Import page and dashboard pie charts are not yet automated
+- CI does not run `electron-rebuild` — native module tests assume system Node matches; this is acceptable for local dev but should be revisited if adding a remote CI runner

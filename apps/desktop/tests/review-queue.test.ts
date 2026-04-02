@@ -151,4 +151,69 @@ describe('review-queue DB layer', () => {
     const none = getTransactionsForReview(db, { batchId: 'nonexistent' });
     expect(none).toHaveLength(0);
   });
+
+  it('possibleDuplicate is false when no accepted match exists in another account', () => {
+    seedBatch(db);
+    const [txn] = getTransactionsForReview(db, { reviewStatus: 'pending' });
+    expect(txn!.possibleDuplicate).toBe(false);
+  });
+
+  it('possibleDuplicate is true when an accepted transaction with same date/amount/description exists in another account', () => {
+    seedBatch(db);
+
+    // Create a second account and an accepted transaction that matches txn-test-1
+    db.prepare(`
+      INSERT INTO accounts (id, institution, institution_type, account_number, type, currency)
+      VALUES ('acc-other', 'cal', 'card', '111-222', 'credit', 'ILS')
+    `).run();
+    db.prepare(`
+      INSERT INTO import_batches (id, created_at, source_type, connector_id, status, extraction_method)
+      VALUES ('batch-other', '2026-01-02T00:00:00Z', 'pdf', 'cal', 'success', 'pdf-parse')
+    `).run();
+    db.prepare(`
+      INSERT INTO transactions (
+        id, account_id, date, processed_date, amount, original_amount,
+        original_currency, charged_currency, description, status,
+        source_type, extraction_method, import_batch_id, import_timestamp, schema_version,
+        warnings, review_status
+      ) VALUES (
+        'txn-dup', 'acc-other', '2026-01-05', '2026-01-05', -100, -100,
+        'ILS', 'ILS', 'Supermarket', 'completed',
+        'pdf', 'pdf-parse', 'batch-other', '2026-01-02T00:00:00Z', 2,
+        '[]', 'accepted'
+      )
+    `).run();
+
+    const [txn] = getTransactionsForReview(db, { reviewStatus: 'pending' });
+    expect(txn!.possibleDuplicate).toBe(true);
+  });
+
+  it('possibleDuplicate is false for a match in the same account', () => {
+    seedBatch(db);
+    // Accept the existing transaction so it has review_status = accepted, same account
+    setReviewStatus(db, ['txn-test-1'], 'accepted', 'accept');
+
+    // Add a new pending transaction in the same account with same details
+    db.prepare(`
+      INSERT INTO import_batches (id, created_at, source_type, connector_id, status, extraction_method)
+      VALUES ('batch-test-2', '2026-01-03T00:00:00Z', 'scraper', 'hapoalim', 'success', 'scraper')
+    `).run();
+    db.prepare(`
+      INSERT INTO transactions (
+        id, account_id, date, processed_date, amount, original_amount,
+        original_currency, charged_currency, description, status,
+        source_type, extraction_method, import_batch_id, import_timestamp, schema_version,
+        warnings, review_status
+      ) VALUES (
+        'txn-same-acc', 'acc-test-1', '2026-01-05', '2026-01-05', -100, -100,
+        'ILS', 'ILS', 'Supermarket', 'completed',
+        'scraper', 'scraper', 'batch-test-2', '2026-01-03T00:00:00Z', 2,
+        '[]', 'pending'
+      )
+    `).run();
+
+    const pending = getTransactionsForReview(db, { reviewStatus: 'pending' });
+    const newTxn = pending.find((t) => t.id === 'txn-same-acc');
+    expect(newTxn!.possibleDuplicate).toBe(false);
+  });
 });
