@@ -3,6 +3,7 @@ export const CATEGORIES = [
   'income',
   'rental_income',
   // Housing
+  'rent',
   'mortgage',
   'home_maintenance',
   // Daily spending
@@ -31,6 +32,7 @@ export type Category = (typeof CATEGORIES)[number];
 export const CATEGORY_LABELS: Record<string, string> = {
   income: 'Income',
   rental_income: 'Rental Income',
+  rent: 'Rent',
   mortgage: 'Mortgage',
   home_maintenance: 'Home Maintenance',
   groceries: 'Groceries',
@@ -60,6 +62,7 @@ export const CATEGORY_COLORS: Record<string, string> = {
   income:           '#16a34a',
   rental_income:    '#0d9488',
   // Housing — indigos
+  rent:             '#3730a3',
   mortgage:         '#4338ca',
   home_maintenance: '#7c3aed',
   // Daily spending
@@ -87,6 +90,7 @@ export const CATEGORY_COLORS: Record<string, string> = {
 export const CATEGORY_BG_COLORS: Record<string, string> = {
   income:           '#dcfce7',
   rental_income:    '#ccfbf1',
+  rent:             '#e0e7ff',
   mortgage:         '#e0e7ff',
   home_maintenance: '#ede9fe',
   groceries:        '#fef3c7',

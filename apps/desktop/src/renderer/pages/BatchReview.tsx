@@ -129,6 +129,10 @@ export function BatchReview({ batch, onBack }: Props): React.ReactElement {
       },
     },
     {
+      key: 'a', description: 'Select all', shift: true,
+      handler: () => setSelectedIds(new Set(transactions.map((t) => t.id))),
+    },
+    {
       key: 'u', description: 'Undo', shift: false,
       handler: () => void handleUndo(),
     },
@@ -217,6 +221,8 @@ export function BatchReview({ batch, onBack }: Props): React.ReactElement {
       {/* Bulk actions */}
       <BulkActions
         selectedCount={selectedIds.size}
+        totalCount={transactions.length}
+        onSelectAll={() => setSelectedIds(new Set(transactions.map((t) => t.id)))}
         onAcceptSelected={() => void handleAccept([...selectedIds])}
         onRejectSelected={() => void handleReject([...selectedIds])}
         onClearSelection={() => setSelectedIds(new Set())}
@@ -236,7 +242,24 @@ export function BatchReview({ batch, onBack }: Props): React.ReactElement {
           >
             <thead>
               <tr style={{ background: '#f3f4f6', borderBottom: '2px solid #e5e7eb' }}>
-                <th style={th()}><span className="sr-only">Select</span></th>
+                <th style={th()}>
+                  <input
+                    type="checkbox"
+                    checked={transactions.length > 0 && selectedIds.size === transactions.length}
+                    ref={(el) => {
+                      if (el) el.indeterminate = selectedIds.size > 0 && selectedIds.size < transactions.length;
+                    }}
+                    onChange={() => {
+                      if (selectedIds.size === transactions.length) {
+                        setSelectedIds(new Set());
+                      } else {
+                        setSelectedIds(new Set(transactions.map((t) => t.id)));
+                      }
+                    }}
+                    aria-label="Select all transactions"
+                    title="Select all / Deselect all"
+                  />
+                </th>
                 <th style={th('left')}>Date</th>
                 <th style={th('left')}>Description</th>
                 <th style={th('right')}>Amount</th>
@@ -291,6 +314,7 @@ export function BatchReview({ batch, onBack }: Props): React.ReactElement {
         <span>r reject</span>
         <span>t tag</span>
         <span>Space select</span>
+        <span>Shift+A select all</span>
         <span>u undo</span>
         <span>? help</span>
       </div>

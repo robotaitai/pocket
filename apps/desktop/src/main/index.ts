@@ -22,6 +22,7 @@ import {
   recordMerchantRule,
   getAllMerchantRules,
   deleteMerchantRule,
+  applyMerchantRulesToBatch,
 } from './db/merchant-rules.js';
 import {
   getAcceptedTransactions,
@@ -352,6 +353,10 @@ async function createWindow(): Promise<void> {
       }
     }
 
+    // Apply known merchant rules to pending transactions in this batch so they
+    // arrive pre-tagged in the review queue, ready for bulk accept.
+    applyMerchantRulesToBatch(db, batch.id);
+
     return { batchId: batch.id, inserted, duplicates, errors, accounts: result.accounts.length };
   });
 
@@ -416,6 +421,9 @@ async function createWindow(): Promise<void> {
         providerType: config.mode === 'connected' ? config.providerType : 'local',
         overallConfidence: extractionResult.overallConfidence,
       });
+
+      // Apply known merchant rules so this batch arrives pre-tagged.
+      applyMerchantRulesToBatch(db, ingestion.batchId);
 
       totalInserted += ingestion.inserted;
       totalDuplicates += ingestion.duplicates;

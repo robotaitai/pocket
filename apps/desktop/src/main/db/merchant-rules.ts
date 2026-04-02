@@ -65,3 +65,31 @@ export function getAllMerchantRules(db: Database.Database): MerchantRule[] {
 export function deleteMerchantRule(db: Database.Database, id: string): void {
   db.prepare('DELETE FROM merchant_rules WHERE id = ?').run(id);
 }
+
+/**
+ * Apply all known merchant rules to pending transactions in a batch.
+ * Called immediately after import so that recognised merchants arrive
+ * pre-tagged in the review queue, ready for one-click bulk accept.
+ *
+ * Only updates transactions whose category is still NULL — user-set
+ * categories (via normalization or previous rules) are not overwritten.
+ */
+export function applyMerchantRulesToBatch(db: Database.Database, batchId: string): number {
+  const result = db.prepare(`
+    UPDATE transactions
+    SET category = (
+      SELECT category FROM merchant_rules
+      WHERE pattern = LOWER(TRIM(transactions.description))
+      ORDER BY match_count DESC
+      LIMIT 1
+    )
+    WHERE import_batch_id = ?
+      AND review_status   = 'pending'
+      AND category        IS NULL
+      AND EXISTS (
+        SELECT 1 FROM merchant_rules
+        WHERE pattern = LOWER(TRIM(transactions.description))
+      )
+  `).run(batchId);
+  return result.changes;
+}

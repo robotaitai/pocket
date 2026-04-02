@@ -2,13 +2,17 @@ import React from 'react';
 
 interface Props {
   selectedCount: number;
+  totalCount: number;
+  onSelectAll: () => void;
   onAcceptSelected: () => void;
   onRejectSelected: () => void;
   onClearSelection: () => void;
 }
 
-export function BulkActions({ selectedCount, onAcceptSelected, onRejectSelected, onClearSelection }: Props): React.ReactElement | null {
+export function BulkActions({ selectedCount, totalCount, onSelectAll, onAcceptSelected, onRejectSelected, onClearSelection }: Props): React.ReactElement | null {
   if (selectedCount === 0) return null;
+
+  const allSelected = selectedCount === totalCount;
 
   return (
     <div
@@ -25,22 +29,30 @@ export function BulkActions({ selectedCount, onAcceptSelected, onRejectSelected,
       }}
     >
       <span style={{ fontSize: 13, color: '#1d4ed8', fontWeight: 600 }}>
-        {selectedCount} selected
+        {selectedCount} of {totalCount} selected
       </span>
+      {!allSelected && (
+        <button
+          onClick={onSelectAll}
+          style={{ ...actionBtn('#1d4ed8'), background: 'transparent', color: '#1d4ed8', border: '1px solid #93c5fd' }}
+        >
+          Select all {totalCount}
+        </button>
+      )}
       <div style={{ flex: 1 }} />
       <button
         onClick={onAcceptSelected}
         aria-label={`Accept ${selectedCount} selected`}
         style={actionBtn('#16a34a')}
       >
-        Accept all (A)
+        Accept ({selectedCount})
       </button>
       <button
         onClick={onRejectSelected}
         aria-label={`Reject ${selectedCount} selected`}
         style={actionBtn('#dc2626')}
       >
-        Reject all (R)
+        Reject ({selectedCount})
       </button>
       <button
         onClick={onClearSelection}
