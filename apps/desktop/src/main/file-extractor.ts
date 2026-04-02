@@ -182,32 +182,48 @@ async function extractXlsx(opts: ExtractionOptions): Promise<FileExtractionResul
 // ── PDF ────────────────────────────────────────────────────────────────────────
 
 /**
- * PDF extraction requires a connected provider.
- * We read the file bytes and convert to base64, then pass them to the provider.
- * The provider receives ONLY the document text — no account metadata from the DB.
+ * PDF extraction pipeline:
+ *   1. Extract text from the PDF binary (no dep — works on any text-layer PDF).
+ *   2. Try institution-specific native parsers first (no AI, no network).
+ *      Currently supported: CAL / Diners credit card statements (כאל).
+ *   3. Fall back to the connected AI provider for unrecognised formats.
+ *
+ * Privacy: only document text is sent to the provider — never account metadata.
  */
 async function extractPdf(opts: ExtractionOptions): Promise<FileExtractionResult> {
+  const fileName = path.basename(opts.filePath);
+  const buf = await readFile(opts.filePath);
+  const documentText = extractPdfText(buf);
+
+  // ── 1. Native parsers (no AI required) ──
+  if (isCalPdf(documentText)) {
+    const records = parseCalPdf(documentText, opts.accountId, fileName);
+    if (records.length > 0) {
+      return {
+        records,
+        sourceType: 'pdf',
+        overallConfidence: 0.95,
+        documentWarnings: [],
+      };
+    }
+  }
+
+  // ── 2. AI provider fallback ──
   if (opts.provider.isLocal) {
     return {
       records: [],
       sourceType: 'pdf',
       overallConfidence: 0,
       documentWarnings: [],
-      error: 'PDF extraction requires a connected provider. Enable a provider in Settings → Connected Agent.',
+      error:
+        'Could not parse this PDF natively. Enable a connected AI provider in Settings → Agent Mode to extract transactions from unrecognised PDF formats.',
     };
   }
 
-  const fileName = path.basename(opts.filePath);
   try {
-    // Read file as base64 — we pass this as "document text" for providers
-    // that can handle base64 file input; for text-only providers we extract
-    // readable text via a simple byte scan.
-    const buf = await readFile(opts.filePath);
-    const documentText = extractPdfText(buf);
-
     const result = await opts.provider.extractDocument({
       documentText,
-      hint: 'bank statement PDF',
+      hint: 'Israeli bank/credit card statement PDF',
       defaultCurrency: opts.defaultCurrency ?? 'ILS',
     });
 
@@ -245,6 +261,112 @@ async function extractPdf(opts: ExtractionOptions): Promise<FileExtractionResult
       error: `PDF extraction error: ${e instanceof Error ? e.message : String(e)}`,
     };
   }
+}
+
+// ── CAL / Diners native parser ─────────────────────────────────────────────────
+
+/**
+ * Detect a CAL (כאל) or Diners credit card PDF.
+ * Matches the text-layer content extracted by extractPdfText.
+ */
+function isCalPdf(text: string): boolean {
+  return /כאל|Cal\b|diners|Diners|כרטיסי אשראי ישראל/i.test(text);
+}
+
+/**
+ * Parse a CAL / Diners monthly statement PDF into RawImportRecords.
+ *
+ * The text layer of these PDFs is extracted in LTR screen order, which for an
+ * RTL Hebrew page means:
+ *   - Dates appear with their digits reversed, e.g. the date 25/04/2025 becomes
+ *     the string "5202/40/52" in the extracted text. Reversing that string gives
+ *     the correct date "25/04/2025".
+ *   - Hebrew words have their characters in visual (right-to-left) order; we use
+ *     the whole word-cluster as the merchant name without attempting to reorder.
+ *   - Amounts (₪ XX.XX) are always clean because digits are direction-neutral.
+ *
+ * Transaction row format in the extracted text (all on one or two lines):
+ *   ₪ {charged_ils} ₪ {original_amount} {flags/category text} {merchant text} {reversed_date}
+ *
+ * Lines beginning with "₪" and containing "סה\"כ" are summary totals — skipped.
+ */
+function parseCalPdf(text: string, accountId: string, sourceFile: string): RawImportRecord[] {
+  const records: RawImportRecord[] = [];
+
+  // Join the whole text into one string and normalise whitespace
+  const flat = text.replace(/\t/g, ' ').replace(/ {2,}/g, ' ');
+
+  // Split on ₪ to get candidate transaction segments.
+  // Each segment starting with a number followed by ₪ is a transaction row.
+  // Pattern: ₪ {amount} ₪ {amount} {description+date}
+  const txnPattern = /₪\s*([\d,]+\.?\d*)\s+₪\s*([\d,]+\.?\d*)\s+([^₪]+)/g;
+  let match = txnPattern.exec(flat);
+
+  while (match) {
+    const chargedRaw = match[1]!.replace(/,/g, '');
+    const originalRaw = match[2]!.replace(/,/g, '');
+    const rest = (match[3] ?? '').trim();
+
+    const charged = parseFloat(chargedRaw);
+    const original = parseFloat(originalRaw);
+    if (isNaN(charged) || charged <= 0) { match = txnPattern.exec(flat); continue; }
+
+    // Skip summary lines
+    if (/סה"כ|סהכ|total/i.test(rest)) { match = txnPattern.exec(flat); continue; }
+
+    // The date is at the end: a sequence of digits and slashes (possibly with spaces)
+    // that when reversed and joined gives a valid date like 25/04/2025 or 25/04/25.
+    const dateMatch = rest.match(/([\d \t\/]{7,12})$/);
+    let dateStr = '';
+    let description = rest;
+
+    if (dateMatch) {
+      const rawDate = dateMatch[1]!.replace(/[\s\t]/g, '');
+      // Reverse the string to correct the RTL extraction order
+      const reversed = rawDate.split('').reverse().join('');
+      // Parse DD/MM/YYYY or DD/MM/YY
+      const parts = reversed.split('/');
+      if (parts.length === 3) {
+        const [day, month, year] = parts;
+        const fullYear = (year!.length === 2) ? `20${year}` : year;
+        const candidate = new Date(`${fullYear}-${month!.padStart(2, '0')}-${day!.padStart(2, '0')}`);
+        if (!isNaN(candidate.getTime())) {
+          dateStr = candidate.toISOString();
+          description = rest.slice(0, rest.length - dateMatch[1]!.length).trim();
+        }
+      }
+    }
+
+    if (!dateStr) { match = txnPattern.exec(flat); continue; }
+
+    // Clean the merchant description: collapse spaces, strip leading flags like "לא הוראת קבע"
+    description = description
+      .replace(/^(לא|כן)\s+(הוראת\s+קבע|עמלה\s*\d*)\s*/u, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (!description) description = 'CAL transaction';
+
+    // Credit card charges are expenses (negative amount)
+    records.push({
+      sourceType: 'pdf',
+      extractionMethod: 'structured-parse',
+      sourceFile,
+      accountId,
+      date: dateStr,
+      processedDate: dateStr,
+      amount: -charged,
+      originalAmount: -original,
+      originalCurrency: 'ILS',
+      chargedCurrency: 'ILS',
+      description,
+      status: 'completed',
+    });
+
+    match = txnPattern.exec(flat);
+  }
+
+  return records;
 }
 
 /**

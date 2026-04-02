@@ -106,7 +106,7 @@ describe('extractFile — PDF in local mode', () => {
       provider: new LocalOnlyProvider(),
     });
 
-    expect(result.error).toContain('connected provider');
+    expect(result.error).toContain('connected AI provider');
     expect(result.records).toHaveLength(0);
   });
 });

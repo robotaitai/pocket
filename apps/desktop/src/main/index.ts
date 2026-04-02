@@ -348,10 +348,13 @@ async function createWindow(): Promise<void> {
   // File import
   ipcMain.handle('fileImport:pickAndExtract', async () => {
     const config = getProviderConfig(db);
-    const apiKey = config.mode === 'connected'
-      ? await secrets.get(POCKET_SERVICE, providerKeyAccount(config.providerType))
-      : undefined;
-    const provider = createProvider({ providerType: config.mode === 'connected' ? config.providerType : 'local', apiKey: apiKey ?? undefined });
+    // Always try to use the stored API key for file import — the mode toggle controls
+    // chat enhancement and suggestions, but having a key should always enable PDF extraction.
+    const apiKey = await secrets.get(POCKET_SERVICE, providerKeyAccount(config.providerType));
+    const provider = createProvider({
+      providerType: apiKey ? config.providerType : 'local',
+      apiKey: apiKey ?? undefined,
+    });
 
     const { filePaths, canceled } = await dialog.showOpenDialog({
       title: 'Import financial files',
