@@ -1,0 +1,14 @@
+{
+  "name": "@pocket/core-model",
+  "version": "0.0.0",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "echo 'no tests yet' && exit 0",
+    "build": "tsc"
+  },
+  "devDependencies": {
+    "typescript": "~5.5.4"
+  }
+}

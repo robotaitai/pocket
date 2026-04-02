@@ -1,0 +1,15 @@
+{
+  "name": "pocket-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@9.15.4",
+  "scripts": {
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "lint:md": "markdownlint-cli2 \"**/*.md\" \"#**/node_modules\" \"#external\""
+  },
+  "devDependencies": {
+    "markdownlint-cli2": "^0.17.2",
+    "typescript": "~5.5.4"
+  }
+}

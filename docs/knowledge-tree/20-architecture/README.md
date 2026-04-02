@@ -1,0 +1,36 @@
+# 20-architecture — How is the system structured?
+
+## Package Dependency Graph
+
+```
+desktop
+├── core-model          (domain types — no dependencies)
+├── connectors-israel   (scraping — depends on core-model + external submodule)
+├── rules-engine        (categorization — depends on core-model)
+├── insights            (aggregation — depends on core-model, rules-engine)
+└── ui                  (components — no domain dependencies)
+
+shared-tag-client       (optional sync — standalone)
+test-fixtures           (test data — depends on core-model, test-only)
+
+external/israeli-bank-scrapers  (git submodule, opaque external dependency)
+```
+
+## Isolation Principle
+
+`@pocket/connectors-israel` is the **only** package allowed to import from `external/israeli-bank-scrapers`. All other packages consume normalized `@pocket/core-model` types only. This boundary prevents scraper implementation details from leaking into product code.
+
+## Data Flow
+
+```
+external scraper
+  → connectors-israel (normalize to core-model types)
+    → rules-engine (apply user rules)
+      → insights (aggregate)
+        → desktop (render via ui components)
+```
+
+## Pending Decisions
+
+- [decisions/ADR-001-desktop-renderer.md](./decisions/ADR-001-desktop-renderer.md) — Electron vs Tauri
+- [decisions/ADR-002-local-database.md](./decisions/ADR-002-local-database.md) — SQLite vs other

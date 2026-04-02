@@ -1,0 +1,3 @@
+[submodule "external/israeli-bank-scrapers"]
+	path = external/israeli-bank-scrapers
+	url = git@github.com:robotaitai/israeli-bank-scrapers.git

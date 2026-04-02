@@ -1,0 +1,20 @@
+{
+  "name": "@pocket/desktop",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "echo 'no tests yet' && exit 0",
+    "dev": "echo 'not implemented — desktop renderer TBD (see ADR-001)'"
+  },
+  "dependencies": {
+    "@pocket/core-model": "workspace:*",
+    "@pocket/ui": "workspace:*",
+    "@pocket/rules-engine": "workspace:*",
+    "@pocket/connectors-israel": "workspace:*",
+    "@pocket/insights": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "~5.5.4"
+  }
+}
