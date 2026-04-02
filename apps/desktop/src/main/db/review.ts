@@ -26,6 +26,11 @@ export interface ReviewTransaction {
   warningsJson: string;
   installmentNumber: number | null;
   installmentTotal: number | null;
+  /**
+   * True when an accepted transaction with the same date, amount, and description
+   * already exists in a DIFFERENT account — likely a scraper+PDF overlap.
+   */
+  possibleDuplicate: boolean;
 }
 
 export interface ReviewBatchSummary {
@@ -113,6 +118,7 @@ export function getTransactionsForReview(
     import_batch_id: string; provider_used: string | null;
     source_file: string | null; confidence_score: number | null;
     warnings: string; installment_number: number | null; installment_total: number | null;
+    possible_duplicate: number;
   }>(`
     SELECT
       t.id, t.account_id, t.date, t.description, t.amount,
@@ -120,7 +126,16 @@ export function getTransactionsForReview(
       t.review_status, t.reviewed_at,
       t.source_type, t.extraction_method, t.import_batch_id,
       t.provider_used, t.source_file, t.confidence_score,
-      t.warnings, t.installment_number, t.installment_total
+      t.warnings, t.installment_number, t.installment_total,
+      EXISTS (
+        SELECT 1 FROM transactions t2
+        WHERE t2.id != t.id
+          AND substr(t2.date, 1, 10) = substr(t.date, 1, 10)
+          AND t2.amount = t.amount
+          AND t2.description = t.description
+          AND t2.account_id != t.account_id
+          AND t2.review_status = 'accepted'
+      ) AS possible_duplicate
     FROM transactions t
     ${where}
     ORDER BY t.date ASC, t.id ASC
@@ -146,6 +161,7 @@ export function getTransactionsForReview(
     warningsJson: r.warnings,
     installmentNumber: r.installment_number,
     installmentTotal: r.installment_total,
+    possibleDuplicate: r.possible_duplicate === 1,
   }));
 }
 

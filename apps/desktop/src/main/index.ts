@@ -383,6 +383,7 @@ async function createWindow(): Promise<void> {
         filePath,
         accountId: firstAccount.id,
         provider,
+        db,
         defaultCurrency: 'ILS',
       });
 

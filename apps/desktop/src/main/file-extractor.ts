@@ -26,6 +26,8 @@ export interface ExtractionOptions {
   provider: AgentProvider;
   defaultCurrency?: string;
   hint?: string;
+  /** DB handle passed to native parsers so they can upsert virtual accounts. */
+  db?: import('better-sqlite3').Database;
 }
 
 export interface FileExtractionResult {
@@ -197,7 +199,14 @@ async function extractPdf(opts: ExtractionOptions): Promise<FileExtractionResult
 
   // ── 1. Native parsers (no AI required) ──
   if (isCalPdf(documentText)) {
-    const records = parseCalPdf(documentText, opts.accountId, fileName);
+    // Use a stable virtual account dedicated to CAL PDF imports so that
+    // transactions from different monthly PDFs always get the same accountId
+    // and therefore the same deterministic transactionId hash.
+    const calAccountId = opts.db
+      ? upsertPdfAccount(opts.db, 'cal', 'CAL Credit Card', 'card')
+      : opts.accountId;
+
+    const records = parseCalPdf(documentText, calAccountId, fileName);
     if (records.length > 0) {
       return {
         records,
@@ -264,6 +273,29 @@ async function extractPdf(opts: ExtractionOptions): Promise<FileExtractionResult
 }
 
 // ── CAL / Diners native parser ─────────────────────────────────────────────────
+
+/**
+ * Upsert a virtual account row for PDF-imported institutions.
+ * Uses a stable, deterministic ID (pdf-{key}) so that transactions from
+ * multiple PDF files of the same institution always share the same accountId,
+ * enabling correct hash-based deduplication across imports.
+ *
+ * Returns the stable account ID.
+ */
+function upsertPdfAccount(
+  db: import('better-sqlite3').Database,
+  key: string,
+  institution: string,
+  institutionType: 'bank' | 'card',
+): string {
+  const id = `pdf-${key}`;
+  db.prepare(`
+    INSERT INTO accounts (id, institution, institution_type, account_number, type, currency, label)
+    VALUES (?, ?, ?, 'pdf-import', 'credit', 'ILS', ?)
+    ON CONFLICT(id) DO NOTHING
+  `).run(id, institution, institutionType, `${institution} (PDF Import)`);
+  return id;
+}
 
 /**
  * Detect a CAL (כאל) or Diners credit card PDF.
@@ -458,8 +490,22 @@ export function ingestExtractedRecords(
           txn.accountId, txn.date, txn.processedDate,
           txn.originalAmount, txn.originalCurrency, txn.description,
         );
+        // Primary dedup: exact hash match (same account, same data)
         const existing = db.prepare('SELECT id FROM transactions WHERE id = ?').get(id);
         if (existing) { duplicates++; continue; }
+
+        // Cross-account content dedup: same date + amount + description in any account.
+        // Catches overlap between scraper imports and PDF imports for the same card.
+        // Uses the date prefix (YYYY-MM-DD) so ISO timestamp format differences don't prevent matching.
+        const crossDup = db.prepare<[string, number, string]>(`
+          SELECT id FROM transactions
+          WHERE substr(date, 1, 10) = substr(?, 1, 10)
+            AND original_amount = ?
+            AND description = ?
+            AND review_status != 'rejected'
+          LIMIT 1
+        `).get(txn.date, txn.originalAmount, txn.description);
+        if (crossDup) { duplicates++; continue; }
 
         db.prepare(`
           INSERT INTO transactions (

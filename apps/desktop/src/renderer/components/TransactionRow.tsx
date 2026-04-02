@@ -102,6 +102,22 @@ export function TransactionRow({
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 14, color: '#111827', fontWeight: 500 }}>{txn.description}</span>
           <SourceBadge sourceType={txn.sourceType} extractionMethod={txn.extractionMethod} />
+          {txn.possibleDuplicate && (
+            <span
+              title="This transaction may already exist in another account (same date, amount, and description). Consider rejecting it to avoid double-counting."
+              style={{
+                background: '#fde8ff',
+                color: '#7e22ce',
+                borderRadius: 4,
+                padding: '1px 6px',
+                fontSize: 11,
+                fontWeight: 700,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              possible duplicate
+            </span>
+          )}
           {warnings.length > 0 && (
             <button
               onClick={(e) => { e.stopPropagation(); setShowWarnings((p) => !p); }}
@@ -118,7 +134,7 @@ export function TransactionRow({
                 cursor: 'pointer',
               }}
             >
-              ⚠ {warnings.length}
+              warning {warnings.length}
             </button>
           )}
         </div>

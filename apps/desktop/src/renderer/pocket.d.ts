@@ -27,6 +27,8 @@ export interface ReviewTransaction {
   warningsJson: string;
   installmentNumber: number | null;
   installmentTotal: number | null;
+  /** True when an accepted transaction with the same date/amount/description exists in another account. */
+  possibleDuplicate: boolean;
 }
 
 export interface ReviewBatchSummary {
