@@ -15,6 +15,7 @@ What local database should store normalized transactions, accounts, and rules?
 ## Decision
 
 **SQLite via better-sqlite3 (no ORM)**. Reasons:
+
 - Project rules prohibit introducing an ORM
 - better-sqlite3 is synchronous, which simplifies Electron main-process DB calls
 - Supports date-range, category, and account queries with plain SQL

@@ -192,6 +192,7 @@ Agent-to-agent handoff log. Append after completing each step. Never delete entr
 ### What was done
 
 **`@pocket/core-model` — new canonical model:**
+
 - `provenance.ts`: `SourceType` ('scraper'|'pdf'|'xlsx'|'csv'|'api'|'manual'), `ExtractionMethod`, `Warning`, `Provenance` interface
 - `import-batch.ts`: `ImportBatch`, `ImportBatchStatus`, `createImportBatch()` factory
 - `merchant.ts`: `Merchant` (normalized name + aliases for cross-source merchant identity)
@@ -202,22 +203,26 @@ Agent-to-agent handoff log. Append after completing each step. Never delete entr
 - 49 tests covering normalization, dedupe, provenance preservation, schema validation, malformed payloads
 
 **`apps/desktop` — DB schema v2:**
+
 - `init.ts` restructured into versioned forward migrations (`migrateV1`, `migrateV2`)
 - V2 adds: `import_batches`, `merchants` tables; provenance columns on `transactions`
 - Migration is idempotent and detects existing schema version to apply only pending steps
 - V1→V2 forward migration test included (simulates a legacy DB being upgraded)
 
 **`@pocket/connectors-israel` — boundary tightened:**
+
 - `ImportSuccess.transactions` replaced by `ImportSuccess.rawRecords: RawImportRecord[]`
 - `normalizeTransaction()` replaced by `normalizeRawRecord()` — produces pre-canonical records with no `importBatchId`
 - `transactionId()` moved to `@pocket/core-model/src/normalization.ts`
 - Connector tests updated to run the full pipeline: connector → rawRecords → `normalizeImport()` → canonical Transactions
 
 **`@pocket/test-fixtures` — updated to schema v2:**
+
 - All fixture `Transaction` objects now carry full provenance fields
 - Added `fixtureImportBatch`, `fixturePdfImportBatch`, `fixtureRawRecords`
 
 **Test coverage summary:**
+
 - core-model: 49 tests (normalization 20, schema-validation 15, dedupe 8, provenance 6)
 - connectors-israel: 20 tests (contract 8, normalize 7, retry 5)
 - desktop: 27 tests (migration 9, db 7, settings 6, secrets 5)

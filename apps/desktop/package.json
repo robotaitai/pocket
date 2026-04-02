@@ -4,11 +4,11 @@
   "private": true,
   "main": "dist/main/index.js",
   "scripts": {
-    "dev": "concurrently \"vite --config vite.renderer.config.ts\" \"tsc -p tsconfig.json --watch\"",
-    "build": "tsc -p tsconfig.json && vite build --config vite.renderer.config.ts",
+    "dev": "concurrently \"vite --config vite.renderer.config.ts\" \"tsc --build tsconfig.json --watch\"",
+    "build": "tsc --build tsconfig.json && vite build --config vite.renderer.config.ts",
     "build:release": "pnpm build && electron-builder --config electron-builder.yml",
     "build:mac": "pnpm build && electron-builder --mac --config electron-builder.yml",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.renderer.json && tsc --noEmit -p tsconfig.test.json && tsc --noEmit -p tsconfig.renderer.test.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.renderer.json && tsc --noEmit -p tsconfig.test.json && tsc --noEmit -p tsconfig.renderer.test.json",
     "test": "vitest run",
     "start": "electron ."
   },

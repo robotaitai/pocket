@@ -1,8 +1,16 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    "composite": true,
     "outDir": "./dist",
     "rootDir": "./src"
   },
-  "include": ["src/main/**/*", "src/preload/**/*"]
+  "include": ["src/main/**/*", "src/preload/**/*"],
+  "references": [
+    { "path": "../../packages/core-model" },
+    { "path": "../../packages/rules-engine" },
+    { "path": "../../packages/insights" },
+    { "path": "../../packages/connectors-israel" },
+    { "path": "../../packages/agent-client" }
+  ]
 }

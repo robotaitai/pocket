@@ -63,6 +63,7 @@ pnpm lint:md       # Markdown lint across all docs
 ### Naming convention
 
 All keychain entries use service `pocket` and structured account names:
+
 - `provider:<type>` — AI provider API key (openai, anthropic, gemini)
 - `connector:<id>:<field>` — scraper credential (e.g. `connector:hapoalim:userCode`)
 
@@ -97,6 +98,7 @@ Auth error messages from connectors must never expose the credential value.
 ### .env policy
 
 `.env` may be used ONLY for developer config that is not a credential:
+
 - `POCKET_DEV_SECRETS=1` — activate the dev-local secret store
 - `NODE_ENV=test` — set by test runners automatically
 - Never: API keys, passwords, or tokens

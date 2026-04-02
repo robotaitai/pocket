@@ -14,6 +14,7 @@ Should the desktop app use Electron or Tauri as the renderer framework?
 ## Decision
 
 **Electron**. Reasons:
+
 - No Rust expertise required; the team knows Node.js and TypeScript
 - `better-sqlite3` (ADR-002) has native Electron bindings with no extra tooling
 - `keytar` for OS secret storage integrates cleanly in an Electron main process

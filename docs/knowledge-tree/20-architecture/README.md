@@ -38,6 +38,7 @@ external scraper
 ## Connector Runtime Contract
 
 `@pocket/connectors-israel` wraps `external/israeli-bank-scrapers` behind the `Connector` interface. Key points:
+
 - The real scraper is loaded at runtime via a non-literal import path (`scraper-loader.ts`) to avoid TypeScript resolving its unbuilt module graph
 - The scraper must be built (`npm run build` in `external/`) before running real connectors
 - Tests always use `FixtureConnector` — no puppeteer, no network, no credentials
@@ -58,6 +59,7 @@ Source (scraper / PDF / XLSX / CSV / API)
 ```
 
 Key invariants:
+
 - Every `Transaction` carries required `Provenance` fields — they are never dropped
 - `transactionId` is deterministic and source-agnostic — cross-source dedup works by id
 - Ambiguous extracted fields carry `warnings[]` and `confidenceScore` — not silently guessed
@@ -79,6 +81,7 @@ Service name: always `pocket`.
 Dev-only fallback: `.local/secrets.json` (gitignored, requires `POCKET_DEV_SECRETS=1`).
 
 What must NOT appear in each layer:
+
 - Settings table: no API keys, no passwords, no tokens
 - Data DB: no credentials, no API keys
 - Keychain: no transaction amounts, no account IDs, no batch data
