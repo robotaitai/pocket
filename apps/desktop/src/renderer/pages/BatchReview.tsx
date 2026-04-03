@@ -12,6 +12,9 @@ interface Props {
   embedded?: boolean;
 }
 
+type SortKey = 'date' | 'description' | 'amount' | 'confidence' | 'category' | 'status';
+type SortDirection = 'asc' | 'desc';
+
 export function BatchReview({ batch, onBack, embedded = false }: Props): React.ReactElement {
   const [transactions, setTransactions] = useState<ReviewTransaction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -21,6 +24,8 @@ export function BatchReview({ batch, onBack, embedded = false }: Props): React.R
   const [showHelp, setShowHelp] = useState(false);
   const [suggestedCategories, setSuggestedCategories] = useState<Record<string, string | null>>({});
   const [statusMessage, setStatusMessage] = useState('');
+  const [sortKey, setSortKey] = useState<SortKey>('date');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
   const loadTransactions = useCallback(async () => {
     const txns = await window.pocket.review.getTransactions({ batchId: batch.batchId, reviewStatus: 'all' });
@@ -36,8 +41,6 @@ export function BatchReview({ batch, onBack, embedded = false }: Props): React.R
   }, [batch.batchId]);
 
   useEffect(() => { void loadTransactions(); }, [loadTransactions]);
-
-  const focused = transactions[focusedIdx] ?? null;
 
   const notify = (msg: string) => {
     setStatusMessage(msg);
@@ -75,6 +78,37 @@ export function BatchReview({ batch, onBack, embedded = false }: Props): React.R
   const pendingCount = transactions.filter((t) => t.reviewStatus === 'pending').length;
   const acceptedCount = transactions.filter((t) => t.reviewStatus === 'accepted').length;
   const rejectedCount = transactions.filter((t) => t.reviewStatus === 'rejected').length;
+  const sortedTransactions = useMemo(() => {
+    const direction = sortDirection === 'asc' ? 1 : -1;
+    const statusOrder: Record<ReviewTransaction['reviewStatus'], number> = { pending: 0, accepted: 1, rejected: 2 };
+    return [...transactions].sort((left, right) => {
+      switch (sortKey) {
+        case 'description':
+          return direction * left.description.localeCompare(right.description);
+        case 'amount':
+          return direction * (left.amount - right.amount || left.date.localeCompare(right.date));
+        case 'confidence':
+          return direction * ((left.confidenceScore ?? -1) - (right.confidenceScore ?? -1) || left.date.localeCompare(right.date));
+        case 'category':
+          return direction * ((left.effectiveCategory ?? '').localeCompare(right.effectiveCategory ?? '') || left.description.localeCompare(right.description));
+        case 'status':
+          return direction * (statusOrder[left.reviewStatus] - statusOrder[right.reviewStatus] || left.date.localeCompare(right.date));
+        case 'date':
+        default:
+          return direction * (left.date.localeCompare(right.date) || left.description.localeCompare(right.description));
+      }
+    });
+  }, [sortDirection, sortKey, transactions]);
+  const focused = sortedTransactions[focusedIdx] ?? null;
+
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDirection((current) => (current === 'asc' ? 'desc' : 'asc'));
+      return;
+    }
+    setSortKey(key);
+    setSortDirection(key === 'description' || key === 'category' ? 'asc' : 'desc');
+  };
 
   // Keyboard bindings
   const keyBindings = useMemo(() => [
@@ -222,8 +256,8 @@ export function BatchReview({ batch, onBack, embedded = false }: Props): React.R
       {/* Bulk actions */}
       <BulkActions
         selectedCount={selectedIds.size}
-        totalCount={transactions.length}
-        onSelectAll={() => setSelectedIds(new Set(transactions.map((t) => t.id)))}
+        totalCount={sortedTransactions.length}
+        onSelectAll={() => setSelectedIds(new Set(sortedTransactions.map((t) => t.id)))}
         onAcceptSelected={() => void handleAccept([...selectedIds])}
         onRejectSelected={() => void handleReject([...selectedIds])}
         onClearSelection={() => setSelectedIds(new Set())}
@@ -233,7 +267,7 @@ export function BatchReview({ batch, onBack, embedded = false }: Props): React.R
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: '#9ca3af' }}>Loading...</div>
-        ) : transactions.length === 0 ? (
+        ) : sortedTransactions.length === 0 ? (
           <div style={{ padding: 40, textAlign: 'center', color: '#9ca3af' }}>No transactions in this batch.</div>
         ) : (
           <table
@@ -246,32 +280,32 @@ export function BatchReview({ batch, onBack, embedded = false }: Props): React.R
                 <th style={th()}>
                   <input
                     type="checkbox"
-                    checked={transactions.length > 0 && selectedIds.size === transactions.length}
+                    checked={sortedTransactions.length > 0 && selectedIds.size === sortedTransactions.length}
                     ref={(el) => {
-                      if (el) el.indeterminate = selectedIds.size > 0 && selectedIds.size < transactions.length;
+                      if (el) el.indeterminate = selectedIds.size > 0 && selectedIds.size < sortedTransactions.length;
                     }}
                     onChange={() => {
-                      if (selectedIds.size === transactions.length) {
+                      if (selectedIds.size === sortedTransactions.length) {
                         setSelectedIds(new Set());
                       } else {
-                        setSelectedIds(new Set(transactions.map((t) => t.id)));
+                        setSelectedIds(new Set(sortedTransactions.map((t) => t.id)));
                       }
                     }}
                     aria-label="Select all transactions"
                     title="Select all / Deselect all"
                   />
                 </th>
-                <th style={th('left')}>Date</th>
-                <th style={th('left')}>Description</th>
-                <th style={th('right')}>Amount</th>
-                <th style={th()}>Confidence</th>
-                <th style={th('left')}>Category</th>
-                <th style={th()}>Status</th>
+                <th style={th('left')}><SortButton active={sortKey === 'date'} direction={sortDirection} onClick={() => toggleSort('date')}>Date</SortButton></th>
+                <th style={th('left')}><SortButton active={sortKey === 'description'} direction={sortDirection} onClick={() => toggleSort('description')}>Description</SortButton></th>
+                <th style={th('right')}><SortButton active={sortKey === 'amount'} direction={sortDirection} onClick={() => toggleSort('amount')}>Amount</SortButton></th>
+                <th style={th()}><SortButton active={sortKey === 'confidence'} direction={sortDirection} onClick={() => toggleSort('confidence')}>Confidence</SortButton></th>
+                <th style={th('left')}><SortButton active={sortKey === 'category'} direction={sortDirection} onClick={() => toggleSort('category')}>Category</SortButton></th>
+                <th style={th()}><SortButton active={sortKey === 'status'} direction={sortDirection} onClick={() => toggleSort('status')}>Status</SortButton></th>
                 <th style={th()}>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {transactions.map((txn, idx) => (
+              {sortedTransactions.map((txn, idx) => (
                 <React.Fragment key={txn.id}>
                   <TransactionRow
                     txn={txn}
@@ -353,4 +387,35 @@ function th(align?: 'left' | 'right'): React.CSSProperties {
     textTransform: 'uppercase',
     letterSpacing: '0.05em',
   };
+}
+
+function SortButton({
+  children,
+  active,
+  direction,
+  onClick,
+}: {
+  children: React.ReactNode;
+  active: boolean;
+  direction: SortDirection;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        border: 'none',
+        background: 'transparent',
+        padding: 0,
+        cursor: 'pointer',
+        fontSize: 12,
+        fontWeight: 600,
+        color: active ? '#111827' : '#6b7280',
+        textTransform: 'uppercase',
+        letterSpacing: '0.05em',
+      }}
+    >
+      {children} {active ? (direction === 'asc' ? '↑' : '↓') : '↕'}
+    </button>
+  );
 }

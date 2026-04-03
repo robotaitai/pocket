@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import type { MerchantSummary } from '../pocket.js';
 import { formatCurrency, formatDate } from '../utils/format.js';
 import { CATEGORIES, CATEGORY_LABELS } from '../constants.js';
@@ -6,6 +6,8 @@ import { PageHeader, QuietCard, SegmentedControl, WorkspacePage } from '../compo
 import { theme } from '../theme.js';
 
 type Tab = 'all' | 'new' | 'suspicious';
+type SortKey = 'merchant' | 'category' | 'total' | 'transactions' | 'lastSeen' | 'flags';
+type SortDirection = 'asc' | 'desc';
 
 interface Props {
   embedded?: boolean;
@@ -19,6 +21,8 @@ export function MerchantView({ embedded = false, initialTab = 'all' }: Props): R
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [localCats, setLocalCats] = useState<Record<string, string>>({});
+  const [sortKey, setSortKey] = useState<SortKey>('total');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
   useEffect(() => { setTab(initialTab); }, [initialTab]);
 
@@ -46,6 +50,36 @@ export function MerchantView({ embedded = false, initialTab = 'all' }: Props): R
     : tab === 'new'
     ? newMerchants.filter((merchant) => merchant.isNew)
     : suspicious;
+  const sortedDisplayed = useMemo(() => {
+    const direction = sortDirection === 'asc' ? 1 : -1;
+    return [...displayed].sort((left, right) => {
+      switch (sortKey) {
+        case 'merchant':
+          return direction * left.description.localeCompare(right.description);
+        case 'category':
+          return direction * (CATEGORY_LABELS[localCats[left.description] ?? left.effectiveCategory ?? ''] ?? 'Untagged')
+            .localeCompare(CATEGORY_LABELS[localCats[right.description] ?? right.effectiveCategory ?? ''] ?? 'Untagged');
+        case 'transactions':
+          return direction * (left.transactionCount - right.transactionCount || left.description.localeCompare(right.description));
+        case 'lastSeen':
+          return direction * left.lastSeen.localeCompare(right.lastSeen);
+        case 'flags':
+          return direction * ((Number(left.isSuspicious) + Number(left.isNew)) - (Number(right.isSuspicious) + Number(right.isNew)) || left.description.localeCompare(right.description));
+        case 'total':
+        default:
+          return direction * (Math.abs(left.total) - Math.abs(right.total) || left.description.localeCompare(right.description));
+      }
+    });
+  }, [displayed, localCats, sortDirection, sortKey]);
+
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDirection((current) => (current === 'asc' ? 'desc' : 'asc'));
+      return;
+    }
+    setSortKey(key);
+    setSortDirection(key === 'merchant' || key === 'category' ? 'asc' : 'desc');
+  };
 
   const body = (
     <div style={{ display: 'grid', gap: 16 }}>
@@ -84,16 +118,16 @@ export function MerchantView({ embedded = false, initialTab = 'all' }: Props): R
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ background: theme.colors.surfaceAlt }}>
-                  <Th align="left">Merchant</Th>
-                  <Th align="left">Category</Th>
-                  <Th align="right">Total</Th>
-                  <Th align="center">Transactions</Th>
-                  <Th align="left">Last seen</Th>
-                  <Th align="center">Flags</Th>
+                  <SortableTh align="left" active={sortKey === 'merchant'} direction={sortDirection} onClick={() => toggleSort('merchant')}>Merchant</SortableTh>
+                  <SortableTh align="left" active={sortKey === 'category'} direction={sortDirection} onClick={() => toggleSort('category')}>Category</SortableTh>
+                  <SortableTh align="right" active={sortKey === 'total'} direction={sortDirection} onClick={() => toggleSort('total')}>Total</SortableTh>
+                  <SortableTh align="center" active={sortKey === 'transactions'} direction={sortDirection} onClick={() => toggleSort('transactions')}>Transactions</SortableTh>
+                  <SortableTh align="left" active={sortKey === 'lastSeen'} direction={sortDirection} onClick={() => toggleSort('lastSeen')}>Last seen</SortableTh>
+                  <SortableTh align="center" active={sortKey === 'flags'} direction={sortDirection} onClick={() => toggleSort('flags')}>Flags</SortableTh>
                 </tr>
               </thead>
               <tbody>
-                {displayed.map((merchant, index) => (
+                {sortedDisplayed.map((merchant, index) => (
                   <tr key={merchant.description} style={{ borderTop: index === 0 ? 'none' : `1px solid ${theme.colors.border}` }}>
                     <Td align="left">
                       <div style={{ fontWeight: 650, color: theme.colors.text }}>{merchant.description}</div>
@@ -150,8 +184,39 @@ function Flag({ text, tone, bg }: { text: string; tone: string; bg: string }) {
   return <span style={{ fontSize: 11, fontWeight: 700, color: tone, background: bg, padding: '4px 8px', borderRadius: theme.radius.pill }}>{text}</span>;
 }
 
-function Th({ children, align }: { children: React.ReactNode; align: 'left' | 'right' | 'center' }) {
-  return <th style={{ padding: '12px 14px', textAlign: align, fontSize: 11, color: theme.colors.textSoft, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{children}</th>;
+function SortableTh({
+  children,
+  align,
+  active,
+  direction,
+  onClick,
+}: {
+  children: React.ReactNode;
+  align: 'left' | 'right' | 'center';
+  active: boolean;
+  direction: SortDirection;
+  onClick: () => void;
+}) {
+  return (
+    <th style={{ padding: '12px 14px', textAlign: align }}>
+      <button
+        onClick={onClick}
+        style={{
+          border: 'none',
+          background: 'transparent',
+          padding: 0,
+          cursor: 'pointer',
+          fontSize: 11,
+          color: active ? theme.colors.text : theme.colors.textSoft,
+          fontWeight: 700,
+          textTransform: 'uppercase',
+          letterSpacing: '0.06em',
+        }}
+      >
+        {children} {active ? (direction === 'asc' ? '↑' : '↓') : '↕'}
+      </button>
+    </th>
+  );
 }
 
 function Td({ children, align }: { children: React.ReactNode; align: 'left' | 'right' | 'center' }) {

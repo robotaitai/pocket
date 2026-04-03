@@ -96,6 +96,12 @@ function normalizeDate(raw: string, warnings: Warning[], field: string): string 
 const CC_PAYMENT_PATTERNS: RegExp[] = [
   // Hebrew: "ל ויזה", "ל כ.א.ל", "ל ישראכרט", "ל מקס", "ל לאומי קארד", "ל דיינרס"
   /^ל\s+(ויזה|כ[\s.]?א[\s.]?ל|ישראכרט|מקס|לאומי\s*קארד|דיינרס|אמריקן\s*אקספרס)/,
+  // Same institutions without the leading "ל " (common on Leumi / bank-linked card settlement lines).
+  // Avoid \b — it is not meaningful for Hebrew letters in JS RegExp.
+  /לאומי\s*ויזה/,
+  /לאומי\s*קארד/,
+  /הפועלים\s*ויזה/,
+  /דיסקונט\s*ויזה/,
   // Hebrew: "כרטיסי אשראי", "תשלום כרטיס אשראי"
   /כרטיסי?\s+אשראי/,
   // English descriptions that some banks emit

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeImport, validateRawRecord, transactionId, createImportBatch } from '../src/index.js';
+import { normalizeImport, validateRawRecord, transactionId, createImportBatch, isCreditCardPayment } from '../src/index.js';
 import type { RawImportRecord } from '../src/raw-import.js';
 import type { ImportBatch } from '../src/import-batch.js';
 
@@ -149,6 +149,33 @@ describe('normalizeImport — failures', () => {
     const { records, failures } = normalizeImport([], makeBatch());
     expect(records).toHaveLength(0);
     expect(failures).toHaveLength(0);
+  });
+});
+
+describe('isCreditCardPayment', () => {
+  it('matches Hebrew "ל ויזה" prefix lines', () => {
+    expect(isCreditCardPayment('ל ויזה - חיוב')).toBe(true);
+  });
+
+  it('matches Leumi bank-linked Visa label without "ל " prefix', () => {
+    expect(isCreditCardPayment('לאומי ויזה')).toBe(true);
+  });
+
+  it('does not match arbitrary groceries text', () => {
+    expect(isCreditCardPayment('סופר ברניק')).toBe(false);
+  });
+});
+
+describe('normalizeImport — credit card settlement auto-category', () => {
+  it('sets credit_card_payment for Leumi Visa settlement descriptions', () => {
+    const raw: RawImportRecord = {
+      ...BASE_RAW,
+      description: 'לאומי ויזה',
+      amount: -8514.92,
+      originalAmount: -8514.92,
+    };
+    const { records } = normalizeImport([raw], makeBatch());
+    expect(records[0]?.category).toBe('credit_card_payment');
   });
 });
 

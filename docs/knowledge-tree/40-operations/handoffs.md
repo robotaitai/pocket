@@ -460,3 +460,29 @@ Agent-to-agent handoff log. Append after completing each step. Never delete entr
 
 - End-to-end UI tests for the redesigned Import page and dashboard pie charts are not yet automated
 - CI does not run `electron-rebuild` — native module tests assume system Node matches; this is acceptable for local dev but should be revisited if adding a remote CI runner
+
+---
+
+## Credit card settlement detection, overview polish, activity table sorting — 2026-04-03
+
+### What was done
+
+- Expanded `isCreditCardPayment` in `packages/core-model/src/normalization.ts` for bank-export labels without the usual leading Hebrew lamed (`ל`) plus space (e.g. `לאומי ויזה`, `לאומי קארד`, `הפועלים ויזה`, `דיסקונט ויזה`); dropped `\b` on Hebrew substrings because JS word boundaries do not apply to Hebrew letters.
+- Added `apps/desktop/src/main/db/credit-card-heuristic.ts` and run `backfillCreditCardPaymentCategories(db)` after `openDb` in `apps/desktop/src/main/index.ts` so existing accepted transactions (no `user_category`, category null or `other`) pick up `credit_card_payment` when descriptions match.
+- Tests: `packages/core-model/tests/normalization.test.ts` (`isCreditCardPayment`, normalizeImport for Leumi Visa); `apps/desktop/tests/db.test.ts` (backfill + breakdown excludes re-tagged rows).
+- Renderer: Overview cash-flow chart refinements; sortable columns on Batch review, Merchants, Timeline.
+
+### Decisions made
+
+- Backfill only touches rows without `user_category` and with `category` null or `other` — manual tags and merchant rules are never overwritten.
+- Startup backfill keeps local DB aligned with improved heuristics without a separate migration version bump.
+
+### What the next agent must read
+
+- `packages/core-model/src/normalization.ts` — `CC_PAYMENT_PATTERNS` / `isCreditCardPayment`
+- `apps/desktop/src/main/db/credit-card-heuristic.ts`
+- `docs/knowledge-tree/50-domain/README.md` — "Bank statement labels vs card detail"
+
+### Pending / deferred
+
+- Full credit-card connector coverage and UX for users who only have bank data (whether to include settlement lines in spend KPIs) — follow-up session.

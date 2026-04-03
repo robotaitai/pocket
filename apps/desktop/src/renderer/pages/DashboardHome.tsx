@@ -628,52 +628,235 @@ function TimeSeriesChart({ points }: { points: OverviewSnapshot['trend'] }) {
     return <Empty text="No accepted activity yet for this range." />;
   }
 
+  const { aggregationLabel, buckets } = aggregateTrendPoints(points);
   const width = 960;
-  const height = 240;
-  const padding = 24;
-  const plotHeight = height - padding * 2;
-  const minValue = Math.min(0, ...points.map((point) => point.net));
-  const maxValue = Math.max(
-    1,
-    ...points.flatMap((point) => [point.spend, point.income, point.net]),
-  );
-  const spread = maxValue - minValue || 1;
-  const xFor = (index: number) => padding + (index / Math.max(1, points.length - 1)) * (width - padding * 2);
-  const yFor = (value: number) => height - padding - ((value - minValue) / spread) * plotHeight;
-  const lineFor = (values: number[]) =>
-    values.map((value, index) => `${index === 0 ? 'M' : 'L'} ${xFor(index)} ${yFor(value)}`).join(' ');
-
-  const spendPath = lineFor(points.map((point) => point.spend));
-  const incomePath = lineFor(points.map((point) => point.income));
-  const netPath = lineFor(points.map((point) => point.net));
-  const zeroY = yFor(0);
+  const height = 300;
+  const paddingLeft = 24;
+  const paddingRight = 64;
+  const chartTop = 20;
+  const chartBottom = 48;
+  const plotHeight = height - chartTop - chartBottom;
+  const plotWidth = width - paddingLeft - paddingRight;
+  const centerY = chartTop + plotHeight / 2;
+  const maxFlow = Math.max(1, ...buckets.flatMap((bucket) => [bucket.income, bucket.spend]));
+  const minNet = Math.min(0, ...buckets.map((bucket) => bucket.cumulativeNet));
+  const maxNet = Math.max(0, ...buckets.map((bucket) => bucket.cumulativeNet));
+  const netSpread = maxNet - minNet || 1;
+  const stepX = plotWidth / Math.max(1, buckets.length);
+  const groupWidth = Math.max(10, stepX * 0.72);
+  const barWidth = Math.max(4, Math.min(16, groupWidth * 0.32));
+  const xFor = (index: number) => paddingLeft + stepX * index + stepX / 2;
+  const incomeHeightFor = (value: number) => (value / maxFlow) * ((plotHeight / 2) - 12);
+  const spendHeightFor = (value: number) => (value / maxFlow) * ((plotHeight / 2) - 12);
+  const netYFor = (value: number) => chartTop + plotHeight - ((value - minNet) / netSpread) * plotHeight;
+  const netPath = buckets
+    .map((bucket, index) => `${index === 0 ? 'M' : 'L'} ${xFor(index)} ${netYFor(bucket.cumulativeNet)}`)
+    .join(' ');
+  const xTicks = buildTickIndexes(buckets.length, 6);
+  const netTicks = [maxNet, (maxNet + minNet) / 2, minNet];
 
   return (
     <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 10 }}>
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            padding: '5px 10px',
+            borderRadius: theme.radius.pill,
+            background: theme.colors.accentSoft,
+            color: theme.colors.accent,
+            fontSize: 12,
+            fontWeight: 700,
+          }}
+        >
+          View: {aggregationLabel}
+        </span>
+        <span style={{ fontSize: 12, color: theme.colors.textSoft }}>
+          Bars show period flow. The line tracks cumulative net.
+        </span>
+      </div>
       <svg viewBox={`0 0 ${width} ${height}`} style={{ width: '100%', height: 'auto', display: 'block' }} aria-label="Cash flow over time">
-        {[0.25, 0.5, 0.75].map((ratio) => (
+        {[0.15, 0.5, 0.85].map((ratio) => (
           <line
             key={ratio}
-            x1={padding}
-            y1={padding + (height - padding * 2) * ratio}
-            x2={width - padding}
-            y2={padding + (height - padding * 2) * ratio}
+            x1={paddingLeft}
+            y1={chartTop + plotHeight * ratio}
+            x2={width - paddingRight}
+            y2={chartTop + plotHeight * ratio}
             stroke={theme.colors.border}
             strokeDasharray="3 6"
           />
         ))}
-        <line x1={padding} y1={zeroY} x2={width - padding} y2={zeroY} stroke={theme.colors.borderStrong} />
-        <path d={spendPath} fill="none" stroke={theme.colors.danger} strokeWidth="3" strokeLinecap="round" />
-        <path d={incomePath} fill="none" stroke={theme.colors.success} strokeWidth="3" strokeLinecap="round" />
-        <path d={netPath} fill="none" stroke={theme.colors.accent} strokeWidth="3" strokeLinecap="round" opacity="0.9" />
+        <line x1={paddingLeft} y1={centerY} x2={width - paddingRight} y2={centerY} stroke={theme.colors.borderStrong} />
+        {buckets.map((bucket, index) => {
+          const x = xFor(index);
+          const incomeHeight = incomeHeightFor(bucket.income);
+          const spendHeight = spendHeightFor(bucket.spend);
+          return (
+            <g key={bucket.key}>
+              <rect
+                x={x - barWidth - 2}
+                y={centerY - incomeHeight}
+                width={barWidth}
+                height={Math.max(2, incomeHeight)}
+                rx="3"
+                fill={theme.colors.success}
+              />
+              <rect
+                x={x + 2}
+                y={centerY}
+                width={barWidth}
+                height={Math.max(2, spendHeight)}
+                rx="3"
+                fill={theme.colors.danger}
+              />
+            </g>
+          );
+        })}
+        <path d={netPath} fill="none" stroke={theme.colors.accent} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+        {buckets.map((bucket, index) => (
+          <circle
+            key={`${bucket.key}-net`}
+            cx={xFor(index)}
+            cy={netYFor(bucket.cumulativeNet)}
+            r="2.5"
+            fill={theme.colors.accent}
+          />
+        ))}
+        {netTicks.map((tick) => (
+          <g key={tick}>
+            <line
+              x1={width - paddingRight + 4}
+              y1={netYFor(tick)}
+              x2={width - paddingRight + 10}
+              y2={netYFor(tick)}
+              stroke={theme.colors.borderStrong}
+            />
+            <text
+              x={width - paddingRight + 14}
+              y={netYFor(tick) + 4}
+              fill={theme.colors.textSoft}
+              fontSize="11"
+            >
+              {formatCompactAmount(tick)}
+            </text>
+          </g>
+        ))}
+        <line
+          x1={paddingLeft}
+          y1={netYFor(0)}
+          x2={width - paddingRight}
+          y2={netYFor(0)}
+          stroke={theme.colors.danger}
+          strokeDasharray="4 6"
+          opacity="0.8"
+        />
+        {xTicks.map((index) => (
+          <text
+            key={buckets[index]!.key}
+            x={xFor(index)}
+            y={height - 16}
+            textAnchor="middle"
+            fill={theme.colors.textSoft}
+            fontSize="11"
+          >
+            {buckets[index]!.label}
+          </text>
+        ))}
       </svg>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 10, fontSize: 12, color: theme.colors.textSoft }}>
-        <span>{formatLongDate(points[0]!.date)}</span>
-        <span>Peak {formatCurrency(maxValue)}</span>
-        <span>{formatLongDate(points[points.length - 1]!.date)}</span>
+        <span>{buckets[0]!.label}</span>
+        <span>Peak period flow {formatCompactAmount(maxFlow)}</span>
+        <span>{buckets[buckets.length - 1]!.label}</span>
       </div>
     </div>
   );
+}
+
+function inferAggregationLabel(points: OverviewSnapshot['trend']): 'Daily' | 'Weekly' | 'Monthly' {
+  if (points.length <= 45) return 'Daily';
+  if (points.length <= 180) return 'Weekly';
+  return 'Monthly';
+}
+
+function aggregateTrendPoints(points: OverviewSnapshot['trend']): {
+  aggregationLabel: 'Daily' | 'Weekly' | 'Monthly';
+  buckets: Array<{
+    key: string;
+    label: string;
+    income: number;
+    spend: number;
+    net: number;
+    cumulativeNet: number;
+  }>;
+} {
+  const aggregationLabel = inferAggregationLabel(points);
+  const groups = new Map<string, { key: string; income: number; spend: number; net: number }>();
+
+  for (const point of points) {
+    const key = bucketKeyFor(point.date, aggregationLabel);
+    const current = groups.get(key) ?? { key, income: 0, spend: 0, net: 0 };
+    current.income += point.income;
+    current.spend += point.spend;
+    current.net += point.net;
+    groups.set(key, current);
+  }
+
+  let cumulativeNet = 0;
+  const buckets = [...groups.values()]
+    .sort((left, right) => left.key.localeCompare(right.key))
+    .map((bucket) => {
+      cumulativeNet += bucket.net;
+      return {
+        ...bucket,
+        cumulativeNet,
+        label: formatBucketLabel(bucket.key, aggregationLabel),
+      };
+    });
+
+  return { aggregationLabel, buckets };
+}
+
+function bucketKeyFor(date: string, aggregationLabel: 'Daily' | 'Weekly' | 'Monthly'): string {
+  if (aggregationLabel === 'Daily') return date;
+  const value = new Date(`${date}T00:00:00Z`);
+  if (aggregationLabel === 'Monthly') {
+    value.setUTCDate(1);
+    return value.toISOString().slice(0, 10);
+  }
+  const day = value.getUTCDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  value.setUTCDate(value.getUTCDate() + diff);
+  return value.toISOString().slice(0, 10);
+}
+
+function formatBucketLabel(date: string, aggregationLabel: 'Daily' | 'Weekly' | 'Monthly'): string {
+  const value = new Date(`${date}T00:00:00Z`);
+  if (aggregationLabel === 'Daily') {
+    return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(value);
+  }
+  if (aggregationLabel === 'Weekly') {
+    return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(value);
+  }
+  return new Intl.DateTimeFormat('en-US', { month: 'short', year: '2-digit' }).format(value);
+}
+
+function buildTickIndexes(length: number, maxTicks: number): number[] {
+  if (length <= maxTicks) return Array.from({ length }, (_value, index) => index);
+  const indexes: number[] = [];
+  const step = (length - 1) / (maxTicks - 1);
+  for (let tick = 0; tick < maxTicks; tick += 1) {
+    indexes.push(Math.round(step * tick));
+  }
+  return [...new Set(indexes)];
+}
+
+function formatCompactAmount(value: number): string {
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000) return `${value < 0 ? '-' : ''}${(abs / 1_000_000).toFixed(1)}M`;
+  if (abs >= 1_000) return `${value < 0 ? '-' : ''}${(abs / 1_000).toFixed(1)}k`;
+  return `${Math.round(value)}`;
 }
 
 function Sparkline({ points, color }: { points: number[]; color: string }) {

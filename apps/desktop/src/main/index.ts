@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'node:path';
 import { openDb } from './db/init.js';
+import { backfillCreditCardPaymentCategories } from './db/credit-card-heuristic.js';
 import { getSetting, setSetting } from './db/settings.js';
 import { createSecretStore } from './secrets/index.js';
 import { getProviderConfig, setProviderConfig } from './db/providers.js';
@@ -57,6 +58,7 @@ import { writeFile } from 'node:fs/promises';
 async function createWindow(): Promise<void> {
   const userDataPath = app.getPath('userData');
   const db = openDb(path.join(userDataPath, 'pocket.db'));
+  backfillCreditCardPaymentCategories(db);
   const secrets = await createSecretStore();
 
   const win = new BrowserWindow({

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openDb } from '../src/main/db/init.js';
 import { getAcceptedSourcesCount, getCashFlowSeries, getCategoryBreakdown, getLatestImportAt } from '../src/main/db/insights.js';
+import { backfillCreditCardPaymentCategories } from '../src/main/db/credit-card-heuristic.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -215,5 +216,48 @@ describe('overview timeline helpers', () => {
   it('counts distinct accepted sources and returns latest import timestamp', () => {
     expect(getAcceptedSourcesCount(db, '2026-03-10', '2026-03-14')).toBe(2);
     expect(getLatestImportAt(db)).toBe('2026-03-12T15:30:00Z');
+  });
+});
+
+describe('backfillCreditCardPaymentCategories', () => {
+  let db: Database.Database;
+
+  beforeEach(() => {
+    db = openDb(':memory:');
+    db.prepare(`
+      INSERT INTO accounts (id, institution, institution_type, account_number, type, currency)
+      VALUES ('acc-1', 'leumi', 'bank', '000', 'checking', 'ILS')
+    `).run();
+    db.prepare(`
+      INSERT INTO import_batches (id, created_at, source_type, connector_id, status, extraction_method)
+      VALUES ('batch-1', '2026-03-01T00:00:00Z', 'scraper', 'leumi', 'success', 'scraper')
+    `).run();
+    db.prepare(`
+      INSERT INTO transactions (
+        id, account_id, date, processed_date, amount, original_amount,
+        original_currency, charged_currency, description, status,
+        source_type, extraction_method, import_batch_id, import_timestamp,
+        schema_version, warnings, review_status, category
+      ) VALUES (
+        't-leumi-visa', 'acc-1', '2026-03-15', '2026-03-15', -8514.92, -8514.92,
+        'ILS', 'ILS', 'לאומי ויזה', 'completed',
+        'scraper', 'scraper', 'batch-1', '2026-03-01T00:00:00Z',
+        2, '[]', 'accepted', 'other'
+      )
+    `).run();
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  it('re-tags Leumi Visa settlements from other to credit_card_payment', () => {
+    expect(backfillCreditCardPaymentCategories(db)).toBe(1);
+    const row = db.prepare<[string], { category: string | null }>(
+      'SELECT category FROM transactions WHERE id = ?',
+    ).get('t-leumi-visa');
+    expect(row?.category).toBe('credit_card_payment');
+    const { expenses } = getCategoryBreakdown(db, '2026-03-01', '2026-04-01');
+    expect(expenses.find((e) => e.category === 'other')).toBeUndefined();
   });
 });

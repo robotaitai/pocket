@@ -29,6 +29,10 @@
 
 **מקור (Source)**: The institution that originated the transaction record.
 
+## Bank statement labels vs card detail
+
+Banks often show the **monthly card settlement** as its own line (for example Leumi bank-linked Visa may appear as `לאומי ויזה` or similar). In Pocket these debits normalize to category `credit_card_payment` when the description matches heuristics in `@pocket/core-model` (`isCreditCardPayment`). Insights and the overview expense mix **exclude** `credit_card_payment` (with transfers and investments) so cash spend is not double-counted once card charges exist elsewhere. Hebrew patterns must not rely on `\b` word boundaries in JavaScript regex. On each app start, accepted rows with no `user_category` and category missing or `other` are re-scanned and updated via `backfillCreditCardPaymentCategories` in `apps/desktop/src/main/db/credit-card-heuristic.ts`.
+
 ## Currency
 
 **ILS (₪)** — Israeli New Shekel. Primary currency for all domestic transactions. USD amounts appear in foreign-currency card transactions.
