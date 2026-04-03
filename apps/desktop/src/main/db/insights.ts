@@ -291,6 +291,13 @@ export interface CategoryBreakdownItem {
   count: number;
 }
 
+export interface CashFlowPoint {
+  date: string;
+  spend: number;
+  income: number;
+  net: number;
+}
+
 /**
  * Aggregate accepted expense transactions by category for a date range.
  * Excludes accounting transfers (credit_card_payment, transfer, investments).
@@ -337,4 +344,86 @@ export function getCategoryBreakdown(
   }));
 
   return { expenses, income };
+}
+
+export function getCashFlowSeries(
+  db: Database.Database,
+  start: string,
+  end: string,
+): CashFlowPoint[] {
+  const EXCLUDED = `('credit_card_payment', 'transfer', 'investments')`;
+  const rows = db.prepare<[string, string], {
+    day: string;
+    spend: number;
+    income: number;
+  }>(`
+    SELECT
+      substr(date, 1, 10) AS day,
+      SUM(CASE
+        WHEN amount < 0 AND COALESCE(user_category, category, 'other') NOT IN ${EXCLUDED}
+        THEN ABS(amount)
+        ELSE 0
+      END) AS spend,
+      SUM(CASE
+        WHEN amount > 0 AND COALESCE(user_category, category, 'other') NOT IN ${EXCLUDED}
+        THEN amount
+        ELSE 0
+      END) AS income
+    FROM transactions
+    WHERE review_status = 'accepted'
+      AND date >= ?
+      AND date < ?
+    GROUP BY substr(date, 1, 10)
+    ORDER BY day ASC
+  `).all(start, end);
+
+  const byDay = new Map(rows.map((row) => [row.day, row]));
+  const result: CashFlowPoint[] = [];
+  let cursor = new Date(`${start}T00:00:00Z`);
+  const endDate = new Date(`${end}T00:00:00Z`);
+
+  while (cursor < endDate) {
+    const day = cursor.toISOString().slice(0, 10);
+    const row = byDay.get(day);
+    const spend = round2(row?.spend ?? 0);
+    const income = round2(row?.income ?? 0);
+    result.push({
+      date: day,
+      spend,
+      income,
+      net: round2(income - spend),
+    });
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+
+  return result;
+}
+
+export function getAcceptedSourcesCount(
+  db: Database.Database,
+  start: string,
+  end: string,
+): number {
+  const row = db.prepare<[string, string], { count: number }>(`
+    SELECT COUNT(DISTINCT account_id) AS count
+    FROM transactions
+    WHERE review_status = 'accepted'
+      AND date >= ?
+      AND date < ?
+  `).get(start, end);
+
+  return row?.count ?? 0;
+}
+
+export function getLatestImportAt(db: Database.Database): string | null {
+  const row = db.prepare<[], { created_at: string | null }>(`
+    SELECT MAX(created_at) AS created_at
+    FROM import_batches
+  `).get();
+
+  return row?.created_at ?? null;
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
 }

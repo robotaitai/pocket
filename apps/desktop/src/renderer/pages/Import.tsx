@@ -1,418 +1,289 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import type { FileImportResult, ConnectorDescriptor, ConnectorRunResult } from '../pocket.js';
+import type { ConnectorDescriptor, ConnectorRunResult, FileImportResult } from '../pocket.js';
+import { Chip, PrimaryButton, QuietCard, SecondaryButton } from '../components/Workspace.js';
+import { theme } from '../theme.js';
 
 type ConnectorRunState = 'idle' | 'running' | 'done' | 'error';
 
 interface ConnectorStatus {
   credentialsSet: boolean;
-  lastRun?: ConnectorRunState;
-  lastResult?: ConnectorRunResult;
 }
 
-export function Import(): React.ReactElement {
+interface Props {
+  embedded?: boolean;
+  onOpenSettings?: () => void;
+}
+
+export function Import({ embedded = false, onOpenSettings }: Props): React.ReactElement {
   const [connectors, setConnectors] = useState<ConnectorDescriptor[]>([]);
   const [status, setStatus] = useState<Record<string, ConnectorStatus>>({});
   const [runState, setRunState] = useState<Record<string, ConnectorRunState>>({});
   const [runResults, setRunResults] = useState<Record<string, ConnectorRunResult>>({});
-
   const [fileState, setFileState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
   const [fileResult, setFileResult] = useState<FileImportResult | null>(null);
-  const [log, setLog] = useState<Array<{ text: string; type: 'info' | 'ok' | 'err' | 'warn' }>>([]);
-  const logRef = useRef<HTMLDivElement>(null);
+  const [activity, setActivity] = useState<Array<{ text: string; tone: 'neutral' | 'success' | 'warning' | 'danger' }>>([]);
+  const activityRef = useRef<HTMLDivElement>(null);
 
-  const appendLog = (text: string, type: 'info' | 'ok' | 'err' | 'warn' = 'info') => {
-    setLog((prev) => [...prev, { text, type }]);
-    setTimeout(() => { logRef.current?.scrollTo({ top: 9999, behavior: 'smooth' }); }, 30);
+  const pushActivity = (text: string, tone: 'neutral' | 'success' | 'warning' | 'danger' = 'neutral') => {
+    setActivity((prev) => [...prev, { text, tone }]);
+    setTimeout(() => activityRef.current?.scrollTo({ top: 9999, behavior: 'smooth' }), 30);
   };
 
   const loadConnectors = useCallback(async () => {
     const list = await window.pocket.credentials.listConnectors();
     setConnectors(list);
 
-    const statuses: Record<string, ConnectorStatus> = {};
+    const nextStatus: Record<string, ConnectorStatus> = {};
     for (const conn of list) {
-      const checks = await Promise.all(
-        conn.credentialFields.map((f) => window.pocket.credentials.getFieldStatus(conn.id, f)),
-      );
-      statuses[conn.id] = { credentialsSet: checks.every((c) => c.set) };
+      const checks = await Promise.all(conn.credentialFields.map((field) => window.pocket.credentials.getFieldStatus(conn.id, field)));
+      nextStatus[conn.id] = { credentialsSet: checks.every((check) => check.set) };
     }
-    setStatus(statuses);
+    setStatus(nextStatus);
   }, []);
 
   useEffect(() => { void loadConnectors(); }, [loadConnectors]);
 
   const handleRun = async (conn: ConnectorDescriptor) => {
     if (runState[conn.id] === 'running') return;
-    setRunState((s) => ({ ...s, [conn.id]: 'running' }));
-    setRunResults((r) => { const n = { ...r }; delete n[conn.id]; return n; });
-
-    const res = await window.pocket.connector.run(conn.id);
-    setRunResults((r) => ({ ...r, [conn.id]: res }));
-    setRunState((s) => ({ ...s, [conn.id]: res.error ? 'error' : 'done' }));
+    setRunState((state) => ({ ...state, [conn.id]: 'running' }));
+    const result = await window.pocket.connector.run(conn.id);
+    setRunResults((state) => ({ ...state, [conn.id]: result }));
+    setRunState((state) => ({ ...state, [conn.id]: result.error ? 'error' : 'done' }));
   };
 
   const handleFileImport = async () => {
     if (fileState === 'running') return;
     setFileState('running');
     setFileResult(null);
-    setLog([]);
-    appendLog('Opening file picker...');
+    setActivity([]);
+    pushActivity('Choose one or more files to import.');
 
-    const res = await window.pocket.fileImport.pickAndExtract();
-    setFileResult(res);
+    const result = await window.pocket.fileImport.pickAndExtract();
+    setFileResult(result);
 
-    if (res.canceled) {
+    if (result.canceled) {
       setFileState('idle');
-      setLog([]);
+      setActivity([]);
       return;
     }
 
-    if (res.error) {
-      appendLog(res.error, 'err');
+    if (result.error) {
+      pushActivity(result.error, 'danger');
       setFileState('error');
       return;
     }
 
-    if (res.fileResults && res.fileResults.length > 1) {
-      appendLog(`Processing ${res.fileResults.length} files...`, 'info');
-      for (const fr of res.fileResults) {
-        if (fr.error) {
-          appendLog(`${fr.file}: ${fr.error}`, 'err');
+    if (result.fileResults && result.fileResults.length > 0) {
+      for (const entry of result.fileResults) {
+        if (entry.error) {
+          pushActivity(`${entry.file}: ${entry.error}`, 'danger');
+        } else if (entry.inserted > 0) {
+          pushActivity(`${entry.file}: ${entry.inserted} new, ${entry.duplicates} duplicate${entry.duplicates === 1 ? '' : 's'}`, 'success');
         } else {
-          appendLog(`${fr.file}: ${fr.inserted} new, ${fr.duplicates} dupes`, fr.inserted > 0 ? 'ok' : 'warn');
+          pushActivity(`${entry.file}: no new transactions (${entry.duplicates} duplicates)`, 'warning');
         }
       }
     }
 
-    const total = res.inserted ?? 0;
-    const dupes = res.duplicates ?? 0;
-    const errs = res.errors?.length ?? 0;
-
-    if (total > 0) appendLog(`Total: ${total} new transaction${total === 1 ? '' : 's'} pending review`, 'ok');
-    if (dupes > 0) appendLog(`${dupes} duplicate${dupes === 1 ? '' : 's'} skipped`, 'warn');
-    if (errs > 0) appendLog(`${errs} error${errs === 1 ? '' : 's'} — check details below`, 'err');
-    if (total === 0 && errs === 0) appendLog('No new transactions found.', 'warn');
-
+    if ((result.inserted ?? 0) > 0) {
+      pushActivity(`${result.inserted ?? 0} new transaction${(result.inserted ?? 0) === 1 ? '' : 's'} are ready for review.`, 'success');
+    }
+    if ((result.errors?.length ?? 0) > 0) {
+      pushActivity(`${result.errors?.length ?? 0} issue${(result.errors?.length ?? 0) === 1 ? '' : 's'} need attention.`, 'danger');
+    }
+    if ((result.inserted ?? 0) === 0 && (result.errors?.length ?? 0) === 0) {
+      pushActivity('Import finished, but nothing new was added.', 'warning');
+    }
     setFileState('done');
   };
 
-  const hasAnyConnector = connectors.length > 0;
-
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: hasAnyConnector ? '340px 1fr' : '1fr', gap: 0, height: '100%', overflow: 'hidden' }}>
-
-      {/* ── LEFT: Data sources ── */}
-      {hasAnyConnector && (
-        <div style={{
-          borderRight: '1px solid #1f2937',
-          background: '#111827',
-          overflowY: 'auto',
-          padding: '24px 20px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 0,
-        }}>
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#4b5563', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 4 }}>
-              Live Connectors
-            </div>
-            <div style={{ fontSize: 12, color: '#6b7280' }}>
-              Pull directly from bank and card APIs. Credentials required.
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
-            {connectors.map((conn) => {
-              const st = runState[conn.id] ?? 'idle';
-              const res = runResults[conn.id];
-              const creds = status[conn.id];
-              const credOk = creds?.credentialsSet ?? false;
-
-              return (
-                <ConnectorRow
-                  key={conn.id}
-                  conn={conn}
-                  state={st}
-                  result={res}
-                  credentialsSet={credOk}
-                  onRun={() => void handleRun(conn)}
-                />
-              );
-            })}
-          </div>
-
-          {/* API limit notice */}
-          <div style={{
-            marginTop: 'auto',
-            background: '#1f2937',
-            border: '1px solid #374151',
-            borderRadius: 8,
-            padding: '10px 12px',
-            fontSize: 11,
-            color: '#6b7280',
-            lineHeight: 1.6,
-          }}>
-            <span style={{ color: '#f59e0b', fontWeight: 700 }}>NOTE</span>
-            {' '}Bank APIs return at most ~3 months. For older history, export PDF/CSV from your bank portal and import below.
-          </div>
-        </div>
-      )}
-
-      {/* ── RIGHT: File import ── */}
-      <div style={{
-        background: '#0f172a',
-        overflowY: 'auto',
-        padding: '24px 28px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 20,
-      }}>
-        <div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#4b5563', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 4 }}>
-            File Import
-          </div>
-          <div style={{ fontSize: 12, color: '#6b7280' }}>
-            CSV · XLSX · PDF — all formats accepted. PDF requires a connected AI provider.
-          </div>
-        </div>
-
-        {/* Drop zone / import button */}
-        <button
-          onClick={() => void handleFileImport()}
-          disabled={fileState === 'running'}
-          style={{
-            background: fileState === 'running' ? '#1e293b' : '#1e293b',
-            border: `2px dashed ${fileState === 'running' ? '#374151' : '#3b82f6'}`,
-            borderRadius: 12,
-            padding: '36px 20px',
-            cursor: fileState === 'running' ? 'default' : 'pointer',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: 10,
-            transition: 'border-color 0.15s',
-          }}
-          onMouseEnter={(e) => { if (fileState !== 'running') (e.currentTarget as HTMLButtonElement).style.borderColor = '#60a5fa'; }}
-          onMouseLeave={(e) => { if (fileState !== 'running') (e.currentTarget as HTMLButtonElement).style.borderColor = '#3b82f6'; }}
-        >
-          <div style={{ fontSize: 28, color: '#3b82f6' }}>{fileState === 'running' ? '⟳' : '+'}</div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: fileState === 'running' ? '#4b5563' : '#e2e8f0' }}>
-            {fileState === 'running' ? 'Processing...' : 'Choose files to import'}
-          </div>
-          <div style={{ fontSize: 12, color: '#475569' }}>
-            CSV · XLSX · PDF &nbsp;·&nbsp; multiple files OK
-          </div>
-        </button>
-
-        {/* Live log terminal */}
-        {(log.length > 0 || fileState === 'running') && (
-          <div
-            ref={logRef}
+  const content = (
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.15fr) minmax(320px, 0.85fr)', gap: 18 }}>
+      <QuietCard title="Import files" subtitle="Use files for older history, one-off statements, or card PDFs that do not come through bank APIs.">
+        <div style={{ display: 'grid', gap: 16 }}>
+          <button
+            onClick={() => void handleFileImport()}
+            disabled={fileState === 'running'}
             style={{
-              background: '#0a0f1a',
-              border: '1px solid #1e293b',
-              borderRadius: 8,
-              padding: '12px 14px',
-              fontFamily: '"SF Mono", "Fira Code", "Menlo", monospace',
-              fontSize: 12,
-              lineHeight: 1.8,
-              maxHeight: 180,
-              overflowY: 'auto',
+              border: `1.5px solid ${theme.colors.borderStrong}`,
+              borderRadius: theme.radius.lg,
+              padding: '28px 24px',
+              background: theme.colors.surfaceAlt,
+              cursor: fileState === 'running' ? 'default' : 'pointer',
+              textAlign: 'left',
             }}
           >
-            {fileState === 'running' && log.length === 0 && (
-              <span style={{ color: '#3b82f6' }}>$ extracting...</span>
-            )}
-            {log.map((entry, i) => (
-              <div key={i} style={{ color: entry.type === 'ok' ? '#34d399' : entry.type === 'err' ? '#f87171' : entry.type === 'warn' ? '#fbbf24' : '#94a3b8' }}>
-                <span style={{ color: '#334155', marginRight: 8 }}>{String(i + 1).padStart(2, ' ')} |</span>
-                {entry.text}
-              </div>
-            ))}
-            {fileState === 'running' && log.length > 0 && (
-              <span style={{ color: '#3b82f6' }}>_</span>
-            )}
-          </div>
-        )}
-
-        {/* Errors detail */}
-        {fileState === 'done' && fileResult?.errors && fileResult.errors.length > 0 && (
-          <div style={{
-            background: '#1c0a0a',
-            border: '1px solid #7f1d1d',
-            borderRadius: 8,
-            padding: '10px 14px',
-          }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#f87171', marginBottom: 6, letterSpacing: '0.08em' }}>ERRORS</div>
-            {fileResult.errors.slice(0, 6).map((e, i) => (
-              <div key={i} style={{ fontSize: 11, color: '#fca5a5', fontFamily: 'monospace', marginBottom: 2 }}>{e}</div>
-            ))}
-            {fileResult.errors.length > 6 && (
-              <div style={{ fontSize: 11, color: '#6b7280' }}>...and {fileResult.errors.length - 6} more</div>
-            )}
-          </div>
-        )}
-
-        {/* Go to review CTA */}
-        {fileState === 'done' && (fileResult?.inserted ?? 0) > 0 && (
-          <div style={{
-            background: '#052e16',
-            border: '1px solid #166534',
-            borderRadius: 8,
-            padding: '12px 16px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 12,
-          }}>
-            <div style={{ fontSize: 20, color: '#4ade80' }}>✓</div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#4ade80' }}>
-                {fileResult?.inserted} new transaction{fileResult?.inserted === 1 ? '' : 's'} pending review
-              </div>
-              <div style={{ fontSize: 11, color: '#166534', marginTop: 2 }}>
-                Go to Review tab to accept or reject.
-              </div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: theme.colors.textSoft, marginBottom: 8 }}>File import</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: theme.colors.text, letterSpacing: '-0.03em' }}>
+              {fileState === 'running' ? 'Processing selected files...' : 'Choose CSV, XLSX, or PDF files'}
             </div>
-            <button
-              onClick={() => { setFileState('idle'); setLog([]); }}
-              style={{ fontSize: 11, color: '#166534', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
-            >
-              import more
-            </button>
-          </div>
-        )}
+            <div style={{ fontSize: 13, color: theme.colors.textMuted, marginTop: 10, lineHeight: 1.55 }}>
+              Multiple files are supported. PDFs use native parsing when possible, otherwise your connected provider can help.
+            </div>
+            <div style={{ marginTop: 14, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <Chip tone="accent">Multiple files ok</Chip>
+              <Chip tone="neutral">CSV, XLSX, PDF</Chip>
+            </div>
+          </button>
 
-        {/* Guide */}
-        <GuideSection />
+          {(fileResult || activity.length > 0) && (
+            <div style={{ display: 'grid', gap: 14 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10 }}>
+                <MiniStat label="New" value={String(fileResult?.inserted ?? 0)} />
+                <MiniStat label="Duplicates" value={String(fileResult?.duplicates ?? 0)} />
+                <MiniStat label="Errors" value={String(fileResult?.errors?.length ?? 0)} />
+              </div>
 
-        {/* Privacy */}
-        <div style={{ fontSize: 11, color: '#334155', lineHeight: 1.6 }}>
-          CSV/XLSX processed locally — no data leaves your device.
-          PDF text is sent to your configured AI provider (not raw bytes, not account metadata).
+              <div
+                ref={activityRef}
+                style={{
+                  maxHeight: 220,
+                  overflowY: 'auto',
+                  border: `1px solid ${theme.colors.border}`,
+                  borderRadius: theme.radius.md,
+                  background: theme.colors.surface,
+                }}
+              >
+                {activity.map((entry, index) => (
+                  <div
+                    key={`${entry.text}-${index}`}
+                    style={{
+                      padding: '12px 14px',
+                      borderTop: index === 0 ? 'none' : `1px solid ${theme.colors.border}`,
+                      color: entry.tone === 'success'
+                        ? theme.colors.success
+                        : entry.tone === 'warning'
+                        ? theme.colors.warning
+                        : entry.tone === 'danger'
+                        ? theme.colors.danger
+                        : theme.colors.textMuted,
+                      fontSize: 13,
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    {entry.text}
+                  </div>
+                ))}
+              </div>
+
+              {fileResult?.errors && fileResult.errors.length > 0 && (
+                <div style={{ border: `1px solid ${theme.colors.border}`, borderRadius: theme.radius.md, background: theme.colors.dangerSoft }}>
+                  {fileResult.errors.slice(0, 6).map((error, index) => (
+                    <div
+                      key={`${error}-${index}`}
+                      style={{
+                        padding: '10px 12px',
+                        borderTop: index === 0 ? 'none' : `1px solid ${theme.colors.border}`,
+                        color: theme.colors.danger,
+                        fontSize: 12,
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      {error}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
+      </QuietCard>
+
+      <div style={{ display: 'grid', gap: 18 }}>
+        <QuietCard title="Live connectors" subtitle="Best for recent history from banks and cards you already connected.">
+          <div style={{ display: 'grid', gap: 10 }}>
+            {connectors.map((conn) => (
+              <ConnectorRow
+                key={conn.id}
+                conn={conn}
+                credentialsSet={status[conn.id]?.credentialsSet ?? false}
+                state={runState[conn.id] ?? 'idle'}
+                result={runResults[conn.id]}
+                onRun={() => void handleRun(conn)}
+              />
+            ))}
+          </div>
+          <div style={{ marginTop: 14, padding: '12px 14px', borderRadius: theme.radius.md, background: theme.colors.warningSoft, color: theme.colors.warning, fontSize: 12, lineHeight: 1.55 }}>
+            Most bank APIs expose about three months of history. Use file import when you need older backfill.
+          </div>
+        </QuietCard>
+
+        <QuietCard title="Need setup help?" subtitle="Connection and provider settings stay close by, but out of primary navigation.">
+          <div style={{ display: 'grid', gap: 10 }}>
+            <div style={{ fontSize: 13, color: theme.colors.textMuted, lineHeight: 1.55 }}>
+              Bank credentials and provider keys stay on-device. Use settings to add or rotate credentials, test access, and control privacy boundaries.
+            </div>
+            {onOpenSettings && (
+              <SecondaryButton onClick={onOpenSettings}>Open settings</SecondaryButton>
+            )}
+          </div>
+        </QuietCard>
       </div>
     </div>
   );
-}
 
-// ── Connector row ──────────────────────────────────────────────────────────────
+  return embedded ? content : <div style={{ padding: 24 }}>{content}</div>;
+}
 
 function ConnectorRow({
-  conn, state, result, credentialsSet, onRun,
+  conn,
+  credentialsSet,
+  state,
+  result,
+  onRun,
 }: {
   conn: ConnectorDescriptor;
+  credentialsSet: boolean;
   state: ConnectorRunState;
   result?: ConnectorRunResult;
-  credentialsSet: boolean;
   onRun: () => void;
 }) {
-  const dot = state === 'running' ? '#f59e0b'
-    : state === 'done' && !result?.error ? '#4ade80'
-    : state === 'error' || result?.error ? '#f87171'
-    : credentialsSet ? '#6b7280'
-    : '#374151';
-
-  const dotLabel = state === 'running' ? 'importing'
-    : state === 'done' && !result?.error ? 'done'
-    : state === 'error' || result?.error ? 'error'
-    : credentialsSet ? 'ready'
-    : 'no credentials';
+  const tone = state === 'error' ? 'danger' : state === 'done' ? 'success' : credentialsSet ? 'accent' : 'warning';
+  const toneLabel = state === 'running'
+    ? 'Running'
+    : state === 'done'
+    ? 'Imported'
+    : state === 'error'
+    ? 'Needs attention'
+    : credentialsSet
+    ? 'Ready'
+    : 'Credentials missing';
 
   return (
-    <div style={{
-      background: '#1f2937',
-      border: '1px solid #374151',
-      borderRadius: 8,
-      padding: '10px 12px',
-      display: 'flex',
-      alignItems: 'center',
-      gap: 10,
-    }}>
-      {/* Status dot */}
-      <div style={{
-        width: 8, height: 8, borderRadius: '50%',
-        background: dot,
-        flexShrink: 0,
-        boxShadow: state === 'running' ? `0 0 6px ${dot}` : (state === 'done' && !result?.error ? `0 0 4px ${dot}` : 'none'),
-      }} title={dotLabel} />
-
-      {/* Labels */}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {conn.name}
+    <div style={{ border: `1px solid ${theme.colors.border}`, borderRadius: theme.radius.md, padding: 14, background: theme.colors.surfaceAlt }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: theme.colors.text }}>{conn.name}</div>
+          <div style={{ fontSize: 12, color: theme.colors.textMuted, marginTop: 4 }}>{conn.institutionType}</div>
         </div>
-        <div style={{ fontSize: 10, color: '#4b5563', marginTop: 1 }}>
-          {conn.institutionType}
-          {state === 'done' && result && !result.error && (
-            <span style={{ color: '#4ade80', marginLeft: 8 }}>
-              +{result.inserted ?? 0} new
-              {(result.duplicates ?? 0) > 0 ? `, ${result.duplicates} dupes` : ''}
-            </span>
-          )}
-          {(state === 'error' || result?.error) && (
-            <span style={{ color: '#f87171', marginLeft: 8 }} title={result?.error}>
-              {result?.error?.slice(0, 40) ?? 'error'}
-            </span>
-          )}
-        </div>
+        <Chip tone={tone}>{toneLabel}</Chip>
       </div>
-
-      {/* Run button */}
-      <button
-        onClick={onRun}
-        disabled={state === 'running' || !credentialsSet}
-        title={!credentialsSet ? 'Set credentials in Settings first' : undefined}
-        style={{
-          padding: '4px 12px',
-          fontSize: 11,
-          fontWeight: 700,
-          borderRadius: 5,
-          border: 'none',
-          cursor: (state === 'running' || !credentialsSet) ? 'default' : 'pointer',
-          background: state === 'running' ? '#374151'
-            : !credentialsSet ? '#1f2937'
-            : state === 'done' ? '#14532d'
-            : '#1d4ed8',
-          color: state === 'running' ? '#6b7280'
-            : !credentialsSet ? '#374151'
-            : '#fff',
-          letterSpacing: '0.04em',
-          flexShrink: 0,
-        }}
-      >
-        {state === 'running' ? '...' : state === 'done' ? 'sync' : 'run'}
-      </button>
+      {result && !result.error && (
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 10, fontSize: 12, color: theme.colors.textMuted }}>
+          <span>{result.inserted ?? 0} new</span>
+          <span>{result.duplicates ?? 0} duplicate{(result.duplicates ?? 0) === 1 ? '' : 's'}</span>
+          {typeof result.accounts === 'number' && <span>{result.accounts} account{result.accounts === 1 ? '' : 's'}</span>}
+        </div>
+      )}
+      {result?.error && (
+        <div style={{ marginTop: 10, fontSize: 12, color: theme.colors.danger, lineHeight: 1.5 }}>
+          {result.error}
+        </div>
+      )}
+      <div style={{ marginTop: 12 }}>
+        <PrimaryButton onClick={onRun} disabled={!credentialsSet || state === 'running'}>
+          {state === 'running' ? 'Running...' : 'Run import'}
+        </PrimaryButton>
+      </div>
     </div>
   );
 }
 
-// ── Guide ──────────────────────────────────────────────────────────────────────
-
-function GuideSection() {
-  const [open, setOpen] = useState(false);
+function MiniStat({ label, value }: { label: string; value: string }) {
   return (
-    <div style={{ border: '1px solid #1e293b', borderRadius: 8, overflow: 'hidden' }}>
-      <button
-        onClick={() => setOpen((o) => !o)}
-        style={{
-          width: '100%', textAlign: 'left', background: '#1e293b', border: 'none',
-          padding: '10px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
-        }}
-      >
-        <span style={{ fontSize: 11, color: '#3b82f6', fontWeight: 700, fontFamily: 'monospace' }}>{open ? '▼' : '▶'}</span>
-        <span style={{ fontSize: 12, fontWeight: 600, color: '#94a3b8' }}>How to export statements from Leumi credit card portal</span>
-      </button>
-      {open && (
-        <div style={{ background: '#0f172a', padding: '12px 16px' }}>
-          <ol style={{ margin: 0, paddingLeft: 20, fontSize: 12, color: '#64748b', lineHeight: 2 }}>
-            <li>Go to <span style={{ color: '#60a5fa', fontFamily: 'monospace' }}>hb2.bankleumi.co.il</span> and sign in</li>
-            <li>Navigate to <span style={{ color: '#e2e8f0' }}>כרטיסי אשראי</span> (Credit Cards)</li>
-            <li>Select your card (Visa 4411 or Mastercard 9414)</li>
-            <li>Choose a billing period → click <span style={{ color: '#e2e8f0' }}>יצוא לקובץ</span> → PDF</li>
-            <li>Import the PDF here — Gemini reads it natively</li>
-          </ol>
-        </div>
-      )}
+    <div style={{ border: `1px solid ${theme.colors.border}`, borderRadius: theme.radius.md, background: theme.colors.surface, padding: '14px 16px' }}>
+      <div style={{ fontSize: 12, color: theme.colors.textSoft, fontWeight: 700, marginBottom: 6 }}>{label}</div>
+      <div style={{ fontSize: 24, fontWeight: 700, color: theme.colors.text }}>{value}</div>
     </div>
   );
 }

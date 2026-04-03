@@ -36,8 +36,9 @@ contextBridge.exposeInMainWorld('pocket', {
       ipcRenderer.invoke('merchantRules:setForMerchant', description, category),
   },
   insights: {
-    getSummary: (periodKey: string) => ipcRenderer.invoke('insights:getSummary', periodKey),
-    getCategoryBreakdown: (periodKey: string) => ipcRenderer.invoke('insights:getCategoryBreakdown', periodKey),
+    getSummary: (period: string | { start: string; end: string }) => ipcRenderer.invoke('insights:getSummary', period),
+    getOverviewSnapshot: (period: string | { start: string; end: string }) => ipcRenderer.invoke('insights:getOverviewSnapshot', period),
+    getCategoryBreakdown: (period: string | { start: string; end: string }) => ipcRenderer.invoke('insights:getCategoryBreakdown', period),
     getRecurring: () => ipcRenderer.invoke('insights:getRecurring'),
     getMerchants: (limit: number) => ipcRenderer.invoke('insights:getMerchants', limit),
     getNewMerchants: () => ipcRenderer.invoke('insights:getNewMerchants'),

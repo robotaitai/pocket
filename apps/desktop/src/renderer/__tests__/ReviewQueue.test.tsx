@@ -32,7 +32,8 @@ describe('ReviewQueue', () => {
     render(<ReviewQueue />);
     await waitFor(() => {
       expect(screen.getByText(/scraper import/i)).toBeTruthy();
-      expect(screen.getByText('2 pending')).toBeTruthy();
+      expect(screen.getByText('Pending')).toBeTruthy();
+      expect(screen.getByText('2')).toBeTruthy();
     });
   });
 
@@ -40,7 +41,8 @@ describe('ReviewQueue', () => {
     window.pocket.review.getBatches = vi.fn().mockResolvedValue([mockBatch]);
     render(<ReviewQueue />);
     await waitFor(() => {
-      expect(screen.getByText('2 pending')).toBeTruthy();
+      expect(screen.getByText('Needs review')).toBeTruthy();
+      expect(screen.getAllByText('2').length).toBeGreaterThan(0);
     });
   });
 

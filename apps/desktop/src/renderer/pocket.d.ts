@@ -124,6 +124,49 @@ export interface CategoryBreakdown {
   income: CategoryBreakdownItem[];
 }
 
+export interface OverviewTrendPoint {
+  date: string;
+  spend: number;
+  income: number;
+  net: number;
+}
+
+export interface OverviewEvent {
+  id: string;
+  date: string;
+  title: string;
+  detail: string;
+  tone: 'accent' | 'success' | 'warning' | 'danger';
+}
+
+export interface UpcomingRecurringItem {
+  description: string;
+  nextExpectedDate: string;
+  amount: number;
+  period: string;
+  confidence: number;
+}
+
+export interface OverviewSnapshot {
+  period: { start: string; end: string };
+  updatedAt: string | null;
+  acceptedTransactionCount: number;
+  sourcesIncluded: number;
+  trend: OverviewTrendPoint[];
+  comparison: {
+    incomeChange: number | null;
+    expenseChange: number | null;
+    netChange: number | null;
+  };
+  events: OverviewEvent[];
+  upcoming: UpcomingRecurringItem[];
+}
+
+export interface DateRangeInput {
+  start: string;
+  end: string;
+}
+
 export interface ChatAnswer {
   text: string;
   sources: Array<{
@@ -250,8 +293,9 @@ export interface PocketApi {
     setForMerchant(description: string, category: string): Promise<void>;
   };
   insights: {
-    getSummary(periodKey: string): Promise<PeriodSummary>;
-    getCategoryBreakdown(periodKey: string): Promise<CategoryBreakdown>;
+    getSummary(period: string | DateRangeInput): Promise<PeriodSummary>;
+    getOverviewSnapshot(period: string | DateRangeInput): Promise<OverviewSnapshot>;
+    getCategoryBreakdown(period: string | DateRangeInput): Promise<CategoryBreakdown>;
     getRecurring(): Promise<RecurringPayment[]>;
     getMerchants(limit: number): Promise<MerchantSummary[]>;
     getNewMerchants(): Promise<MerchantSummary[]>;

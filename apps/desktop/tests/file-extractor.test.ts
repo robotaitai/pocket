@@ -182,12 +182,14 @@ describe('ingestExtractedRecords', () => {
       extractionMethod: 'structured-parse' as const,
       sourceFile: csvPath,
       accountId: 'acc-test',
+      providerType: 'local',
+      overallConfidence: 1,
     };
     const first = ingestExtractedRecords(db, extractResult.records, bankOpts);
     expect(first.inserted).toBeGreaterThan(0);
 
     // Mark them accepted so cross-account check triggers
-    const ids = db.prepare<[], { id: string }>('SELECT id FROM transactions WHERE account_id = ?')
+    const ids = db.prepare<[string], { id: string }>('SELECT id FROM transactions WHERE account_id = ?')
       .all('acc-test')
       .map((r) => r.id);
     db.prepare(`UPDATE transactions SET review_status = 'accepted' WHERE id IN (${ids.map(() => '?').join(',')})`)
@@ -199,6 +201,8 @@ describe('ingestExtractedRecords', () => {
       extractionMethod: 'structured-parse' as const,
       sourceFile: csvPath,
       accountId: 'acc-card',
+      providerType: 'local',
+      overallConfidence: 1,
     };
     const second = ingestExtractedRecords(db, extractResult.records, cardOpts);
     expect(second.inserted).toBe(0);

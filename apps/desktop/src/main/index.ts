@@ -30,6 +30,9 @@ import {
   searchTransactions,
   getTransactionsForExport,
   getCategoryBreakdown,
+  getCashFlowSeries,
+  getAcceptedSourcesCount,
+  getLatestImportAt,
   type SearchFilter,
 } from './db/insights.js';
 import { executeChat } from './chat-executor.js';
@@ -43,6 +46,8 @@ import {
   currentMonth,
   lastMonth,
   lastNMonths,
+  onlyMonth,
+  sinceMonth,
 } from '@pocket/insights';
 import { dialog } from 'electron';
 import { writeFile } from 'node:fs/promises';
@@ -113,20 +118,36 @@ async function createWindow(): Promise<void> {
   });
 
   // Insights — period summaries
-  function periodRange(key: string) {
+  function resolvePeriodRange(input: string | { start: string; end: string }) {
+    if (typeof input !== 'string') {
+      return input;
+    }
+    const key = input;
+    const onlyMatch = key.match(/^only-(\d{4}-\d{2})$/);
+    if (onlyMatch?.[1]) {
+      return onlyMonth(onlyMatch[1]);
+    }
+    const sinceMatch = key.match(/^since-(\d{4}-\d{2})$/);
+    if (sinceMatch?.[1]) {
+      return sinceMonth(sinceMatch[1]);
+    }
+    const trailingMatch = key.match(/^last-(\d+)-months$/);
+    if (trailingMatch?.[1]) {
+      return lastNMonths(Math.max(1, Number(trailingMatch[1])));
+    }
     return key === 'last-month' ? lastMonth()
       : key === 'last-3-months' ? lastNMonths(3)
       : currentMonth();
   }
 
-  ipcMain.handle('insights:getSummary', (_e, periodKey: string) => {
-    const range = periodRange(periodKey);
+  ipcMain.handle('insights:getSummary', (_e, period: string | { start: string; end: string }) => {
+    const range = resolvePeriodRange(period);
     const txns = getAcceptedTransactions(db, range);
     return summarizePeriod(txns, range);
   });
 
-  ipcMain.handle('insights:getCategoryBreakdown', (_e, periodKey: string) => {
-    const range = periodRange(periodKey);
+  ipcMain.handle('insights:getCategoryBreakdown', (_e, period: string | { start: string; end: string }) => {
+    const range = resolvePeriodRange(period);
     return getCategoryBreakdown(db, range.start, range.end);
   });
 
@@ -152,6 +173,119 @@ async function createWindow(): Promise<void> {
   ipcMain.handle('insights:getImportHealth', () => {
     const rows = getBatchHealthRows(db);
     return buildImportHealthReport(rows);
+  });
+
+  ipcMain.handle('insights:getOverviewSnapshot', (_e, period: string | { start: string; end: string }) => {
+    const range = resolvePeriodRange(period);
+    const txns = getAcceptedTransactions(db, range);
+    const summary = summarizePeriod(txns, range);
+
+    const startDate = new Date(`${range.start}T00:00:00Z`);
+    const endDate = new Date(`${range.end}T00:00:00Z`);
+    const spanDays = Math.max(1, Math.round((endDate.getTime() - startDate.getTime()) / 86_400_000));
+    const previousEnd = new Date(startDate);
+    const previousStart = new Date(startDate);
+    previousStart.setUTCDate(previousStart.getUTCDate() - spanDays);
+    const previousRange = {
+      start: previousStart.toISOString().slice(0, 10),
+      end: previousEnd.toISOString().slice(0, 10),
+    };
+    const previousSummary = summarizePeriod(getAcceptedTransactions(db, previousRange), previousRange);
+
+    const allAccepted = getAcceptedTransactions(db);
+    const recurring = detectRecurring(allAccepted);
+    const newMerchants = findNewAndSuspiciousMerchants(allAccepted);
+    const batches = getBatchHealthRows(db);
+    const updatedAt = getLatestImportAt(db);
+
+    const events: Array<{
+      id: string;
+      date: string;
+      title: string;
+      detail: string;
+      tone: 'accent' | 'success' | 'warning' | 'danger';
+    }> = [];
+
+    const inRange = (iso: string): boolean => iso.slice(0, 10) >= range.start && iso.slice(0, 10) < range.end;
+
+    for (const batch of batches.filter((item) => inRange(item.createdAt)).slice(0, 3)) {
+      events.push({
+        id: `batch-${batch.batchId}`,
+        date: batch.createdAt.slice(0, 10),
+        title: 'Import completed',
+        detail: `${batch.total} transactions processed from ${batch.sourceType}.`,
+        tone: 'accent',
+      });
+      if (batch.pending === 0 && batch.accepted > 0) {
+        events.push({
+          id: `review-${batch.batchId}`,
+          date: batch.createdAt.slice(0, 10),
+          title: 'Review batch accepted',
+          detail: `${batch.accepted} transactions were accepted from this import batch.`,
+          tone: 'success',
+        });
+      }
+    }
+
+    for (const merchant of newMerchants.filter((item) => item.isSuspicious && inRange(item.lastSeen)).slice(0, 2)) {
+      events.push({
+        id: `suspicious-${merchant.description}`,
+        date: merchant.lastSeen.slice(0, 10),
+        title: 'Suspicious merchant detected',
+        detail: `${merchant.description} looks unusual relative to prior activity.`,
+        tone: 'danger',
+      });
+    }
+
+    for (const recurringItem of recurring.filter((item) => inRange(item.firstSeen)).slice(0, 2)) {
+      events.push({
+        id: `recurring-${recurringItem.description}`,
+        date: recurringItem.firstSeen.slice(0, 10),
+        title: 'New recurring payment',
+        detail: `${recurringItem.description} now appears to recur on a ${recurringItem.period} cadence.`,
+        tone: 'warning',
+      });
+    }
+
+    if (updatedAt) {
+      const ageDays = Math.floor((Date.now() - new Date(updatedAt).getTime()) / 86_400_000);
+      if (ageDays >= 7) {
+        events.push({
+          id: 'stale-import',
+          date: updatedAt.slice(0, 10),
+          title: 'Import freshness is slipping',
+          detail: `No new import has landed for ${ageDays} day${ageDays === 1 ? '' : 's'}.`,
+          tone: 'warning',
+        });
+      }
+    }
+
+    events.sort((a, b) => b.date.localeCompare(a.date));
+
+    return {
+      period: range,
+      updatedAt,
+      acceptedTransactionCount: summary.transactionCount,
+      sourcesIncluded: getAcceptedSourcesCount(db, range.start, range.end),
+      trend: getCashFlowSeries(db, range.start, range.end),
+      comparison: {
+        incomeChange: previousSummary.income === 0 ? null : Math.round((((summary.income - previousSummary.income) / Math.abs(previousSummary.income)) * 100) * 10) / 10,
+        expenseChange: previousSummary.expenses === 0 ? null : Math.round((((summary.expenses - previousSummary.expenses) / Math.abs(previousSummary.expenses)) * 100) * 10) / 10,
+        netChange: previousSummary.net === 0 ? null : Math.round((((summary.net - previousSummary.net) / Math.abs(previousSummary.net)) * 100) * 10) / 10,
+      },
+      events: events.slice(0, 6),
+      upcoming: recurring
+        .filter((item) => item.nextExpectedDate)
+        .sort((a, b) => (a.nextExpectedDate ?? '').localeCompare(b.nextExpectedDate ?? ''))
+        .slice(0, 8)
+        .map((item) => ({
+          description: item.description,
+          nextExpectedDate: item.nextExpectedDate!,
+          amount: item.estimatedAmount,
+          period: item.period,
+          confidence: item.confidence,
+        })),
+    };
   });
 
   ipcMain.handle('insights:chat', async (_e, question: string) => {

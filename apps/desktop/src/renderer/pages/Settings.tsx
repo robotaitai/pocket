@@ -14,7 +14,11 @@ const PROVIDER_DOCS: Record<Exclude<ProviderType, 'local'>, string> = {
   gemini: 'https://makersuite.google.com/app/apikey',
 };
 
-export function Settings(): React.ReactElement {
+interface Props {
+  embedded?: boolean;
+}
+
+export function Settings({ embedded = false }: Props): React.ReactElement {
   const [config, setConfig] = useState<ProviderConfig | null>(null);
   const [apiKey, setApiKey] = useState('');
   const [apiKeyMasked, setApiKeyMasked] = useState(true);
@@ -145,8 +149,8 @@ export function Settings(): React.ReactElement {
   if (!config) return <div style={{ padding: 40, color: '#9ca3af' }}>Loading...</div>;
 
   return (
-    <div style={{ maxWidth: 700, margin: '0 auto', padding: '28px 24px', fontFamily: 'system-ui, sans-serif' }}>
-      <h1 style={{ margin: '0 0 28px', fontSize: 22, fontWeight: 700 }}>Settings</h1>
+    <div style={{ maxWidth: 760, margin: '0 auto', padding: embedded ? '24px 24px 40px' : '28px 24px', fontFamily: 'system-ui, sans-serif' }}>
+      {!embedded && <h1 style={{ margin: '0 0 28px', fontSize: 22, fontWeight: 700 }}>Settings</h1>}
 
       {/* Mode section */}
       <Section title="Agent Mode">

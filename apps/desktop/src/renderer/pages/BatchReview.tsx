@@ -9,9 +9,10 @@ import { useKeyboard } from '../hooks/useKeyboard.js';
 interface Props {
   batch: ReviewBatchSummary;
   onBack: () => void;
+  embedded?: boolean;
 }
 
-export function BatchReview({ batch, onBack }: Props): React.ReactElement {
+export function BatchReview({ batch, onBack, embedded = false }: Props): React.ReactElement {
   const [transactions, setTransactions] = useState<ReviewTransaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [focusedIdx, setFocusedIdx] = useState(0);
@@ -152,7 +153,7 @@ export function BatchReview({ batch, onBack }: Props): React.ReactElement {
   const batchDate = batch.createdAt.slice(0, 10);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#f9fafb' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: embedded ? '100%' : '100vh', minHeight: embedded ? 720 : undefined, background: '#f9fafb' }}>
       {/* Header */}
       <div style={{
         display: 'flex',

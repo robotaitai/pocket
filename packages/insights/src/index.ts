@@ -23,4 +23,4 @@ export { buildMerchantSummaries, findNewAndSuspiciousMerchants } from './merchan
 export { buildImportHealthReport } from './import-health.js';
 export { parseChatQuestion, periodRangeFromToken, SUGGESTED_QUESTIONS } from './chat.js';
 export { exportToCsv } from './export.js';
-export { currentMonth, lastMonth, lastNMonths, parsePeriodToken, rangeLabel } from './periods.js';
+export { currentMonth, lastMonth, lastNMonths, onlyMonth, sinceMonth, parsePeriodToken, rangeLabel } from './periods.js';

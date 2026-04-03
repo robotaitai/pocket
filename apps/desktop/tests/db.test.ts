@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openDb } from '../src/main/db/init.js';
-import { getCategoryBreakdown } from '../src/main/db/insights.js';
+import { getAcceptedSourcesCount, getCashFlowSeries, getCategoryBreakdown, getLatestImportAt } from '../src/main/db/insights.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -155,5 +155,65 @@ describe('getCategoryBreakdown', () => {
     const { expenses, income } = getCategoryBreakdown(db, '2025-01-01', '2025-02-01');
     expect(expenses).toHaveLength(0);
     expect(income).toHaveLength(0);
+  });
+});
+
+describe('overview timeline helpers', () => {
+  let db: Database.Database;
+
+  beforeEach(() => {
+    db = openDb(':memory:');
+    db.prepare(`
+      INSERT INTO accounts (id, institution, institution_type, account_number, type, currency)
+      VALUES
+        ('acc-1', 'test-bank', 'bank', '000', 'checking', 'ILS'),
+        ('acc-2', 'test-card', 'card', '111', 'credit', 'ILS')
+    `).run();
+    db.prepare(`
+      INSERT INTO import_batches (id, created_at, source_type, connector_id, status, extraction_method)
+      VALUES
+        ('batch-1', '2026-03-10T10:00:00Z', 'scraper', 'test-bank', 'success', 'scraper'),
+        ('batch-2', '2026-03-12T15:30:00Z', 'pdf', 'test-card', 'success', 'agent')
+    `).run();
+
+    const txns = [
+      { id: 't1', accountId: 'acc-1', date: '2026-03-10', amount: -120, category: 'groceries' },
+      { id: 't2', accountId: 'acc-1', date: '2026-03-10', amount: 3000, category: 'income' },
+      { id: 't3', accountId: 'acc-2', date: '2026-03-12', amount: -80, category: 'dining' },
+      { id: 't4', accountId: 'acc-2', date: '2026-03-13', amount: -500, category: 'credit_card_payment' },
+    ];
+
+    for (const txn of txns) {
+      db.prepare(`
+        INSERT INTO transactions (
+          id, account_id, date, processed_date, amount, original_amount,
+          original_currency, charged_currency, description, status,
+          source_type, extraction_method, import_batch_id, import_timestamp,
+          schema_version, warnings, review_status, category
+        ) VALUES (
+          ?, ?, ?, ?, ?, ?,
+          'ILS', 'ILS', 'desc', 'completed',
+          'scraper', 'scraper', 'batch-1', '2026-03-10T00:00:00Z',
+          2, '[]', 'accepted', ?
+        )
+      `).run(txn.id, txn.accountId, txn.date, txn.date, txn.amount, txn.amount, txn.category);
+    }
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  it('builds a daily cash flow series and excludes accounting transfers', () => {
+    const series = getCashFlowSeries(db, '2026-03-10', '2026-03-14');
+    expect(series).toHaveLength(4);
+    expect(series[0]).toEqual({ date: '2026-03-10', spend: 120, income: 3000, net: 2880 });
+    expect(series[2]).toEqual({ date: '2026-03-12', spend: 80, income: 0, net: -80 });
+    expect(series[3]).toEqual({ date: '2026-03-13', spend: 0, income: 0, net: 0 });
+  });
+
+  it('counts distinct accepted sources and returns latest import timestamp', () => {
+    expect(getAcceptedSourcesCount(db, '2026-03-10', '2026-03-14')).toBe(2);
+    expect(getLatestImportAt(db)).toBe('2026-03-12T15:30:00Z');
   });
 });

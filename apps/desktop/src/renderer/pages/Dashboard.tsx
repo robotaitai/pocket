@@ -1,116 +1,124 @@
-import React, { useState } from 'react';
-import { ReviewQueue } from './ReviewQueue.js';
+import React, { useMemo, useState } from 'react';
 import { DashboardHome } from './DashboardHome.js';
-import { RecurringPayments } from './RecurringPayments.js';
-import { MerchantView } from './MerchantView.js';
-import { Timeline } from './Timeline.js';
-import { ImportHealth } from './ImportHealth.js';
 import { Chat } from './Chat.js';
-import { Import } from './Import.js';
 import { Settings } from './Settings.js';
+import { ActivityWorkspace, type ActivityMode } from './ActivityWorkspace.js';
+import { ConnectWorkspace } from './ConnectWorkspace.js';
+import { Chip, SecondaryButton, SideDrawer } from '../components/Workspace.js';
+import { theme } from '../theme.js';
 
-type Tab = 'home' | 'review' | 'insights' | 'chat' | 'import' | 'settings';
-type InsightsSubTab = 'merchants' | 'recurring';
-type ImportSubTab = 'import' | 'health';
-type ReviewSubTab = 'queue' | 'timeline';
+type Tab = 'overview' | 'activity' | 'assistant' | 'connect';
 
 const TABS: Array<{ id: Tab; label: string }> = [
-  { id: 'home', label: 'Home' },
-  { id: 'review', label: 'Review' },
-  { id: 'insights', label: 'Insights' },
-  { id: 'chat', label: 'Chat' },
-  { id: 'import', label: 'Import' },
-  { id: 'settings', label: 'Settings' },
+  { id: 'overview', label: 'Overview' },
+  { id: 'activity', label: 'Activity' },
+  { id: 'assistant', label: 'Assistant' },
+  { id: 'connect', label: 'Connect' },
 ];
 
-export function Dashboard() {
-  const [tab, setTab] = useState<Tab>('home');
-  const [insightsSub, setInsightsSub] = useState<InsightsSubTab>('merchants');
-  const [importSub, setImportSub] = useState<ImportSubTab>('import');
-  const [reviewSub, setReviewSub] = useState<ReviewSubTab>('queue');
+export function Dashboard(): React.ReactElement {
+  const [tab, setTab] = useState<Tab>('overview');
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [activityMode, setActivityMode] = useState<ActivityMode>('review');
+  const [assistantQuestion, setAssistantQuestion] = useState<{ id: number; text: string } | null>(null);
+
+  const queueAssistantQuestion = (text: string) => {
+    setAssistantQuestion({ id: Date.now(), text });
+    setTab('assistant');
+  };
+
+  const statusChip = useMemo(() => (
+    <Chip tone="accent">Local-first workspace</Chip>
+  ), []);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', fontFamily: 'system-ui, sans-serif', background: '#f9fafb' }}>
-      <header style={{ display: 'flex', alignItems: 'center', padding: '0 20px', background: '#fff', borderBottom: '1px solid #e5e7eb', height: 48, flexShrink: 0 }}>
-        <span style={{ fontSize: 17, fontWeight: 800, color: '#111827', marginRight: 24, letterSpacing: '-0.02em' }}>Pocket</span>
-        <nav style={{ display: 'flex', gap: 2 }}>
-          {TABS.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              aria-current={tab === t.id ? 'page' : undefined}
-              style={{
-                border: 'none',
-                background: 'none',
-                padding: '6px 14px',
-                cursor: 'pointer',
-                fontSize: 13,
-                fontWeight: tab === t.id ? 700 : 400,
-                color: tab === t.id ? '#1d4ed8' : '#6b7280',
-                borderBottom: tab === t.id ? '2px solid #1d4ed8' : '2px solid transparent',
-                borderRadius: '4px 4px 0 0',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {t.label}
-            </button>
-          ))}
-        </nav>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: theme.colors.appBg, fontFamily: 'system-ui, sans-serif', color: theme.colors.text }}>
+      <header
+        style={{
+          height: 64,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '0 20px',
+          background: 'rgba(251, 252, 254, 0.92)',
+          backdropFilter: 'blur(10px)',
+          borderBottom: `1px solid ${theme.colors.border}`,
+          flexShrink: 0,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 800, letterSpacing: '-0.03em', color: theme.colors.text }}>
+              Pocket
+            </div>
+            <div style={{ fontSize: 11, color: theme.colors.textSoft, marginTop: 2 }}>
+              Intelligent personal finance workspace
+            </div>
+          </div>
+          <nav style={{ display: 'flex', gap: 6 }}>
+            {TABS.map((item) => {
+              const active = item.id === tab;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setTab(item.id)}
+                  aria-current={active ? 'page' : undefined}
+                  style={{
+                    border: 'none',
+                    borderRadius: theme.radius.pill,
+                    background: active ? theme.colors.surface : 'transparent',
+                    color: active ? theme.colors.text : theme.colors.textMuted,
+                    padding: '10px 14px',
+                    fontSize: 13,
+                    fontWeight: active ? 700 : 600,
+                    cursor: 'pointer',
+                    boxShadow: active ? '0 2px 10px rgba(16, 32, 51, 0.06)' : 'none',
+                  }}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {statusChip}
+          <SecondaryButton onClick={() => setSettingsOpen(true)}>Settings</SecondaryButton>
+        </div>
       </header>
 
       <main style={{ flex: 1, overflowY: 'auto' }}>
-        {tab === 'home' && <DashboardHome />}
-
-        {tab === 'review' && (
-          <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-            <SubNav tabs={[{ id: 'queue', label: 'Review Queue' }, { id: 'timeline', label: 'Timeline' }]} active={reviewSub} onChange={(v) => setReviewSub(v as ReviewSubTab)} />
-            {reviewSub === 'queue' && <ReviewQueue />}
-            {reviewSub === 'timeline' && <Timeline />}
-          </div>
+        {tab === 'overview' && (
+          <DashboardHome
+            onAskPocket={queueAssistantQuestion}
+            onOpenActivity={(mode) => {
+              setActivityMode(mode ?? 'review');
+              setTab('activity');
+            }}
+            onOpenConnect={() => setTab('connect')}
+          />
         )}
-
-        {tab === 'insights' && (
-          <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-            <SubNav tabs={[{ id: 'merchants', label: 'Merchants' }, { id: 'recurring', label: 'Recurring' }]} active={insightsSub} onChange={(v) => setInsightsSub(v as InsightsSubTab)} />
-            {insightsSub === 'merchants' && <MerchantView />}
-            {insightsSub === 'recurring' && <RecurringPayments />}
-          </div>
+        {tab === 'activity' && (
+          <ActivityWorkspace
+            mode={activityMode}
+            onAskPocket={queueAssistantQuestion}
+          />
         )}
-
-        {tab === 'chat' && <Chat />}
-
-        {tab === 'import' && (
-          <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-            <SubNav tabs={[{ id: 'import', label: 'Import' }, { id: 'health', label: 'Import Health' }]} active={importSub} onChange={(v) => setImportSub(v as ImportSubTab)} />
-            {importSub === 'import' && <Import />}
-            {importSub === 'health' && <ImportHealth />}
-          </div>
+        {tab === 'assistant' && (
+          <Chat
+            queuedQuestion={assistantQuestion}
+            onQuestionConsumed={() => setAssistantQuestion(null)}
+          />
         )}
-
-        {tab === 'settings' && <Settings />}
+        {tab === 'connect' && (
+          <ConnectWorkspace onOpenSettings={() => setSettingsOpen(true)} />
+        )}
       </main>
-    </div>
-  );
-}
 
-function SubNav({ tabs, active, onChange }: { tabs: { id: string; label: string }[]; active: string; onChange(v: string): void }) {
-  return (
-    <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid #e5e7eb', background: '#fff', paddingLeft: 24, flexShrink: 0 }}>
-      {tabs.map((t) => (
-        <button
-          key={t.id}
-          onClick={() => onChange(t.id)}
-          style={{
-            border: 'none', background: 'none', padding: '8px 16px',
-            cursor: 'pointer', fontSize: 13,
-            fontWeight: active === t.id ? 600 : 400,
-            color: active === t.id ? '#111827' : '#6b7280',
-            borderBottom: active === t.id ? '2px solid #111827' : '2px solid transparent',
-          }}
-        >
-          {t.label}
-        </button>
-      ))}
+      <SideDrawer open={settingsOpen} title="Settings" onClose={() => setSettingsOpen(false)}>
+        <Settings embedded />
+      </SideDrawer>
     </div>
   );
 }
